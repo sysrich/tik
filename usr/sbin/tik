@@ -1,0 +1,70 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright 2023 SUSE LLC
+
+tik_dir=/usr/lib/tik
+
+# Read configuration files, /usr first, then /etc
+. $tik_dir/config
+. $TIK_CUSTOM_DIR/config
+
+# Read libraries
+. $tik_dir/lib/tik-functions
+
+# Check essential paths exist
+if [ ! -d "$TIK_IMG_DIR" ]; then
+	echo "$TIK_IMG_DIR does not exist"
+	exit 1
+fi
+
+# for testing we may run as non root
+if [ -w /run ]; then
+	export TMPDIR=/run
+else
+	dry=1
+fi
+
+if [ -n "$dry" ]; then
+	run() {
+		echo "$@"
+	}
+else
+	run() {
+		"$@"
+	}
+fi
+
+cleanup() {
+	# reenable systemd and kernel logs
+	# Try the race-free DBus method first
+	if ! run dbus-send --system --print-reply --dest=org.freedesktop.systemd1 /org/freedesktop/systemd1 \
+	     org.freedesktop.systemd1.Manager.SetShowStatus string: &>/dev/null; then
+		# Fall back to using signals
+		run kill -s SIGRTMAX-10 1
+	fi
+	run setterm -msg on 2>/dev/null || true
+	echo
+}
+trap cleanup EXIT
+
+# avoid kernel messages spamming our console
+run setterm -msg off 2>/dev/null || true
+# Avoid systemd messages spamming our console
+# Try the race-free DBus method first
+if ! run dbus-send --system --print-reply --dest=org.freedesktop.systemd1 /org/freedesktop/systemd1 \
+     org.freedesktop.systemd1.Manager.SetShowStatus string:off &>/dev/null; then
+	# Fall back to using signals
+	run kill -s SIGRTMAX-9 1
+	# sleep to avoid systemd bug, bsc#1119382
+	sleep 1
+fi
+
+load_modules "pre"
+load_modules "pre" "etc"
+
+get_disk
+get_img
+dump_image "${TIK_INSTALL_IMAGE}" "${TIK_INSTALL_DEVICE}"
+
+load_modules "post"
+load_modules "post" "etc"

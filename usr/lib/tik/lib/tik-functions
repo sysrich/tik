@@ -1,0 +1,286 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright 2023 SUSE LLC
+
+
+# Read os-release, to enable those variables to be used elsewhere
+if [ -e /etc/os-release ]; then
+	. /etc/os-release
+else
+	. /usr/lib/os-release
+fi
+
+d(){
+	while true
+	do
+		retval=0
+		# Bash makes it a bit annoying to read the output of a different FD into a variable, it
+		# only supports reading stdout by itself. So redirect 3 to stdout and 1 to the real stdout.
+		exec {stdoutfd}>&1
+		result="$(dialog --backtitle "$TIK_TITLE" --output-fd 3 "$@" 3>&1 1>&${stdoutfd})" || retval=$?
+		# Word splitting makes it necessary to use eval here.
+		eval "exec ${stdoutfd}>&-"
+		case $retval in
+		  0)
+			return 0
+			;;
+		  1|255)
+			dialog --backtitle "$TIK_TITLE" --yesno $"Do you really want to quit?" 0 0 && exit 1
+			continue
+			;;
+		esac
+	done
+}
+
+udev_pending() {
+    declare DEVICE_TIMEOUT=${DEVICE_TIMEOUT}
+    local limit=30
+    if [[ "${DEVICE_TIMEOUT}" =~ ^[0-9]+$ ]]; then
+        limit=$(((DEVICE_TIMEOUT + 1)/ 2))
+    fi
+    udevadm settle --timeout=${limit}
+}
+
+bool() {
+    # """
+    # provides boolean string true|false for given value.
+    # Only if value matches true return true, in any other
+    # case return false
+    # """
+    local value=$1
+    if [ -n "${value}" ] && [ "${value}" = "true" ] ;then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+warn() {
+    echo "tik Warning: $*" >&2
+}
+
+get_persistent_device_from_unix_node() {
+    local unix_device=$1
+    local schema=$2
+    local node
+    local persistent_name
+    node=$(basename "${unix_device}")
+    udev_pending
+    for persistent_name in /dev/disk/"${schema}"/*; do
+        if [ "$(basename "$(readlink "${persistent_name}")")" = "${node}" ];then
+            if [[ ${persistent_name} =~ ^/dev/disk/"${schema}"/nvme-eui ]]; then
+                # Filter out nvme-eui nodes as they are not descriptive to the user
+                continue
+            fi
+            echo "${persistent_name}"
+            return
+        fi
+    done
+    warn "Could not find ${schema} representation of ${node}"
+    warn "Using original device ${unix_device}"
+    echo "${unix_device}"
+}
+
+get_disk_list() {
+    # Volume label for the tik install media must be set to "TIKINSTALL" to filter it out from the device list
+    tik_volid="TIKINSTALL"
+    local disk_id="by-id"
+    local disk_size
+    local disk_device
+    local disk_device_by_id
+    local disk_meta
+    local list_items
+    local blk_opts="-p -n -r -o NAME,SIZE,TYPE"
+    local message
+    local blk_opts_plus_label="${blk_opts},LABEL"
+    local tik_install_disk_part
+
+    tik_install_disk_part=$(
+        eval lsblk "${blk_opts_plus_label}" | \
+        tr -s ' ' ":" | \
+        grep ":${tik_volid}" | \
+        cut -f1 -d:
+    )
+
+    for disk_meta in $(
+        eval lsblk "${blk_opts}" | grep -E "disk|raid" | tr ' ' ":"
+    );do
+        disk_device="$(echo "${disk_meta}" | cut -f1 -d:)"
+        if [[ "${tik_install_disk_part}" == "${disk_device}"* ]]; then
+            # ignore install source device
+            continue
+        fi
+        if [[ ${disk_device} =~ ^/dev/fd ]];then
+            # ignore floppy disk devices
+            continue
+        fi
+        if [[ ${disk_device} =~ ^/dev/zram ]];then
+            # ignore zram devices
+            continue
+        fi
+        disk_size=$(echo "${disk_meta}" | cut -f2 -d:)
+        disk_device_by_id=$(
+            get_persistent_device_from_unix_node "${disk_device}" "${disk_id}"
+        )
+        if [ -n "${disk_device_by_id}" ];then
+            disk_device=${disk_device_by_id}
+        fi
+        list_items="${list_items} ${disk_device} ${disk_size}"
+    done
+    if [ -n "${TIK_INSTALL_DEVICE}" ];then
+        # install device overwritten by config.
+        local device=${TIK_INSTALL_DEVICE}
+        local device_meta
+        local device_size
+        if [ ! -e "${device}" ];then
+            local no_dev="Given device ${device} does not exist"
+            report_and_quit "${no_dev}"
+        fi
+        if [ ! -b "${device}" ];then
+            local no_block_dev="Given device ${device} is not a block special"
+            report_and_quit "${no_block_dev}"
+        fi
+        device_meta=$(
+            eval lsblk "${blk_opts}" "${device}" |\
+            grep -E "disk|raid" | tr ' ' ":"
+        )
+        device_size=$(echo "${device_meta}" | cut -f2 -d:)
+        list_items="${device} ${device_size}"
+        message="tik installation device set to to: ${device}"
+        info "${message}" >&2
+    fi
+    if [ -z "${list_items}" ];then
+        local no_device_text="No device(s) for installation found"
+        report_and_quit "${no_device_text}"
+    fi
+    echo "${list_items}"
+}
+
+get_disk() {
+    local disk_list
+    local device_array
+    disk_list=$(get_disk_list)
+    if [ -n "${disk_list}" ];then
+        local count=0
+        local device_index=0
+        for entry in ${disk_list};do
+            if [ $((count % 2)) -eq 0 ];then
+                device_array[${device_index}]=${entry}
+                device_index=$((device_index + 1))
+            fi
+            count=$((count + 1))
+        done
+        if [ "${device_index}" -eq 1 ];then
+            # one single disk device found, use it
+            TIK_INSTALL_DEVICE="${device_array[0]}"
+        else
+            # manually select from storage list
+            d --menu "Select Installation Disk:" 0 0 0 $(get_disk_list)
+            TIK_INSTALL_DEVICE="$result"
+        fi
+    fi
+}
+
+get_img_list() {
+    local list_items
+    local message
+    local img_meta
+    local img_item
+    # Images are assumed to be named to the following standard
+    # $ProductName.$Version.raw.xz
+    # Any extraneous fields may confuse tik's detection, selection and presentation of the image to the user
+    for img_meta in $(
+        eval cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" *.raw.xz | tr '	' ":")
+    );do
+         img_filename="$(echo $img_meta | cut -f1 -d:)"
+         img_size="$(echo $img_meta | cut -f2 -d:)"
+         list_items="${list_items} ${img_filename} ${img_size}"
+    done
+    if [ -n "${TIK_INSTALL_IMAGE}" ];then
+        # install image overwritten by config.
+        local img=${TIK_INSTALL_IMAGE}
+        local img_meta
+        local img_size
+        if [ ! -e "${img}" ];then
+            local no_img="Given image ${img} does not exist"
+            report_and_quit "${no_img}"
+        fi
+        if [ ! -s "${img}" ];then
+            local empty_img="Given image ${img} is empty"
+            report_and_quit "${empty_img}"
+        fi
+        img_meta=$(
+            eval cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" $img | tr '	' ":")
+        )
+        img_filename="$(echo $img_meta | cut -f1 -d:)"
+        img_size="$(echo $img_meta | cut -f2 -d:)"
+        list_items="${list_items} ${img_filename} ${img_size}"
+        message="tik installation image set to to: ${img}"
+        info "${message}" >&2
+    fi
+    if [ -z "${list_items}" ];then
+        local no_image_text="No images(s) for installation found"
+        report_and_quit "${no_image_text}"
+    fi
+    echo ${list_items}
+}
+
+get_img() {
+    local img_list
+    local img_array
+    img_list=$(get_img_list)
+    if [ -n "${img_list}" ];then
+        local count=0
+        local img_index=0
+        for entry in ${img_list};do
+            if [ $((count % 2)) -eq 0 ];then
+                img_array[${img_index}]=${entry}
+                img_index=$((img_index + 1))
+            fi
+            count=$((count + 1))
+        done
+        if [ "${img_index}" -eq 1 ];then
+            # one single disk image found, use it
+            TIK_INSTALL_IMAGE="${img_array[0]}"
+        else
+            # manually select from storage list
+            d --menu "Select Installation Image:" 0 0 0 $(get_img_list)
+            TIK_INSTALL_IMAGE="$result"
+        fi
+    fi
+}
+
+function dump_image {
+    local image_source_files=$1
+    local image_target=$2
+    local image_source
+    local image_basename
+    image_source="$(echo "${image_source_files}" | cut -f1 -d\|)"
+    image_basename=$(basename "${image_source}")
+    local load_text="Loading ${image_basename}..."
+    local title_text="Installation..."
+
+    local ack_dump_text="Destroying ALL data on\n    ${image_target}\nContinue?"
+    d --yesno "${ack_dump_text}" 7 80
+
+    if [ -n "$dry" ]; then
+       echo "DEBUG: ${load_text} [${image_target}]..."
+    fi
+    (pv -n ${image_source} | run dd of=${image_target} bs=64k) 2>&1 | d --gauge "${title_text}" 7 65 0
+    d --msgbox "${image_basename}\n    has been installed to\n${image_target}" 7 80
+}
+
+
+load_modules() {
+local module_dir
+if [[ $2 = "etc" ]]; then
+    module_dir=$TIK_CUSTOM_DIR/modules/$1
+else
+    module_dir=$tik_dir/modules/$1
+fi
+if [ -n "$(ls -A $module_dir)" ]; then
+for f in $module_dir/*
+    do
+    	. $f
+    done
+fi
+}

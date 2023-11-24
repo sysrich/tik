@@ -1,0 +1,19 @@
+# Directory for users to add custom configuration and modules
+# Default: "/etc/tik"
+#TIK_CUSTOM_DIR="/etc/tik"
+
+# Directory for OS images to be deployed
+# Default: "/var/lib/tik"
+#TIK_IMG_DIR="/var/lib/tik"
+
+# Tile to show in the top left during the installation process. This may be the 'distribution name' for tik media that only offers a single distribution
+# Default: "tik - Transactional Installation Kit"
+#TIK_TITLE="tik - Transactional Installation Kit"
+
+# For unattended installations the disk device to deploy the image must be defined if more than one is present
+# Default: Undefined
+#TIK_INSTALL_DEVICE=""
+
+# For unattended installations the disk image to deploy must be defined if more than one is present
+# Default: Undefined
+#TIK_INSTALL_IMAGE=""
