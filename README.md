@@ -30,7 +30,7 @@ tik is designed to deploy a .raw/.img disk image, which is expected to contain
 
 tik should not care about the contents of the disk image, which potentially could be of any Operating System built using any toolset (eg kiwi, mkosi, etc)
 
-Features like expanding the partitions to fill the disk are expected to be handled by tools like systemd-repart, not tik (though in theory optional extensions could be written to impliment this)
+Features like expanding the partitions to fill the disk are expected to be handled by tools like systemd-repart on the booting of the deployed OS, not by tik (though in theory optional extensions could be written to impliment this)
 
 ## tik Installation Media
 
