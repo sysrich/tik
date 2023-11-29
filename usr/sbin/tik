@@ -1,3 +1,56 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright 2023 SUSE LLC
 
 # Read configuration files, /usr first, then /etc
+. /usr/lib/tik/config
+. $TIK_CUSTOM_DIR/config
+
+# Check essential paths exist
+if [ ! -d "$TIK_IMG_DIR" ]; then
+	echo "$TIK_IMG_DIR does not exist"
+	exit 1
+fi
+
+# for testing we may run as non root
+if [ -w /run ]; then
+	export TMPDIR=/run
+else
+	dry=1
+fi
+
+if [ -n "$dry" ]; then
+	run() {
+		echo "$@"
+	}
+else
+	run() {
+		"$@"
+	}
+fi
+
+cleanup() {
+	# reenable systemd and kernel logs
+	# Try the race-free DBus method first
+	if ! run dbus-send --system --print-reply --dest=org.freedesktop.systemd1 /org/freedesktop/systemd1 \
+	     org.freedesktop.systemd1.Manager.SetShowStatus string: &>/dev/null; then
+		# Fall back to using signals
+		run kill -s SIGRTMAX-10 1
+	fi
+	run setterm -msg on 2>/dev/null || true
+	echo
+}
+trap cleanup EXIT
+
+# avoid kernel messages spamming our console
+run setterm -msg off 2>/dev/null || true
+# Avoid systemd messages spamming our console
+# Try the race-free DBus method first
+if ! run dbus-send --system --print-reply --dest=org.freedesktop.systemd1 /org/freedesktop/systemd1 \
+     org.freedesktop.systemd1.Manager.SetShowStatus string:off &>/dev/null; then
+	# Fall back to using signals
+	run kill -s SIGRTMAX-9 1
+	# sleep to avoid systemd bug, bsc#1119382
+	sleep 1
+fi
+
