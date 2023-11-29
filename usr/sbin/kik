@@ -1,0 +1,3 @@
+#!/bin/bash
+
+# Read configuration files, /usr first, then /etc
