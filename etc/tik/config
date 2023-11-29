@@ -1,0 +1,7 @@
+# Directory for users to add custom configuration and modules
+# Default: "/etc/tik"
+#TIK_CUSTOM_DIR="/etc/tik"
+
+# Directory for OS images to be deployed
+# Default: "/var/lib/tik"
+#TIK_IMG_DIR="/var/lib/tik"
