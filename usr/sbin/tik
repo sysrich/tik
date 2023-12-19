@@ -2,9 +2,14 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: Copyright 2023 SUSE LLC
 
+tik_dir=/usr/lib/tik
+
 # Read configuration files, /usr first, then /etc
-. /usr/lib/tik/config
+. $tik_dir/config
 . $TIK_CUSTOM_DIR/config
+
+# Read libraries
+. $tik_dir/lib/tik-functions
 
 # Check essential paths exist
 if [ ! -d "$TIK_IMG_DIR" ]; then
@@ -54,3 +59,15 @@ if ! run dbus-send --system --print-reply --dest=org.freedesktop.systemd1 /org/f
 	sleep 1
 fi
 
+load_modules "pre"
+load_modules "pre" "etc"
+
+get_selected_disk
+
+#d --menu "List of images in $TIK_IMG_DIR" 0 0 0 $(cd $TIK_IMG_DIR && stat --printf="%n\t%s\n" *)
+
+#( echo 10;sleep 1;echo 50;sleep 1; echo 90;sleep 1;echo 100;sleep 1 ) | d --gauge "Imaging with $result" 0 0 0
+#d --msgbox "$TIK_INSTALL_DEVICE has been imaged with $result" 0 0
+
+load_modules "post"
+load_modules "post" "etc"
