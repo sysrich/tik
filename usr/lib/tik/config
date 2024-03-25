@@ -13,3 +13,7 @@ TIK_TITLE="tik - Transactional Installation Kit"
 # For unattended installations the disk device to deploy the image must be defined
 # Default: Undefined
 #TIK_INSTALL_DEVICE=""
+
+# For unattended installations the disk image to deploy must be defined if more than one is present
+# Default: Undefined
+#TIK_INSTALL_IMAGE=""
