@@ -58,6 +58,17 @@ warn() {
     echo "tik Warning: $*" >&2
 }
 
+report_and_quit() {
+    local text_message="$1"
+    d --timeout 60 --msgbox "${text_message}" 5 80
+    if [ -n "$dry" ]; then
+        echo "${text_message}"
+        exit 1
+    else
+        reboot -f
+    fi
+}
+
 get_persistent_device_from_unix_node() {
     local unix_device=$1
     local schema=$2
@@ -80,7 +91,7 @@ get_persistent_device_from_unix_node() {
     echo "${unix_device}"
 }
 
-get_disk_list() {
+get_disk() {
     # Volume label for the tik install media must be set to "TIKINSTALL" to filter it out from the device list
     tik_volid="TIKINSTALL"
     local disk_id="by-id"
@@ -88,6 +99,8 @@ get_disk_list() {
     local disk_device
     local disk_device_by_id
     local disk_meta
+    local disk_list
+    local device_array
     local list_items
     local blk_opts="-p -n -r -o NAME,SIZE,TYPE"
     local message
@@ -152,13 +165,7 @@ get_disk_list() {
         local no_device_text="No device(s) for installation found"
         report_and_quit "${no_device_text}"
     fi
-    echo "${list_items}"
-}
-
-get_disk() {
-    local disk_list
-    local device_array
-    disk_list=$(get_disk_list)
+    disk_list=${list_items}
     if [ -n "${disk_list}" ];then
         local count=0
         local device_index=0
@@ -174,17 +181,19 @@ get_disk() {
             TIK_INSTALL_DEVICE="${device_array[0]}"
         else
             # manually select from storage list
-            d --menu "Select Installation Disk:" 0 0 0 $(get_disk_list)
+            d --menu "Select Installation Disk:" 0 0 0 ${list_items}
             TIK_INSTALL_DEVICE="$result"
         fi
     fi
 }
 
-get_img_list() {
+get_img() {
     local list_items
     local message
     local img_meta
     local img_item
+    local img_list
+    local img_array
     # Images are assumed to be named to the following standard
     # $ProductName.$Version.raw.xz
     # Any extraneous fields may confuse tik's detection, selection and presentation of the image to the user
@@ -221,13 +230,7 @@ get_img_list() {
         local no_image_text="No images(s) for installation found"
         report_and_quit "${no_image_text}"
     fi
-    echo ${list_items}
-}
-
-get_img() {
-    local img_list
-    local img_array
-    img_list=$(get_img_list)
+    img_list=${list_items}
     if [ -n "${img_list}" ];then
         local count=0
         local img_index=0
@@ -243,7 +246,7 @@ get_img() {
             TIK_INSTALL_IMAGE="${img_array[0]}"
         else
             # manually select from storage list
-            d --menu "Select Installation Image:" 0 0 0 $(get_img_list)
+            d --menu "Select Installation Image:" 0 0 0 ${list_items}
             TIK_INSTALL_IMAGE="$result"
         fi
     fi
@@ -265,7 +268,7 @@ function dump_image {
     if [ -n "$dry" ]; then
        echo "DEBUG: ${load_text} [${image_target}]..."
     fi
-    (pv -n ${image_source} | run dd of=${image_target} bs=64k) 2>&1 | d --gauge "${title_text}" 7 65 0
+    (xzcat ${image_source} | pv -n | run dd of=${image_target} bs=64k) 2>&1 | d --gauge "${title_text}" 7 65 0
     d --msgbox "${image_basename}\n    has been installed to\n${image_target}" 7 80
 }
 
