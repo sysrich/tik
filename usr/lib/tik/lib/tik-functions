@@ -257,8 +257,7 @@ function dump_image {
     local image_target=$2
     local image_source
     local image_basename
-    image_source="$(echo "${image_source_files}" | cut -f1 -d\|)"
-    image_basename=$(basename "${image_source}")
+    image_basename=$(basename "${image_source_files}")
     local load_text="Loading ${image_basename}..."
     local title_text="Installation..."
 
@@ -268,7 +267,7 @@ function dump_image {
     if [ -n "$dry" ]; then
        echo "DEBUG: ${load_text} [${image_target}]..."
     fi
-    (xzcat ${image_source} | pv -n | run dd of=${image_target} bs=64k) 2>&1 | d --gauge "${title_text}" 7 65 0
+    (xzcat ${TIK_IMG_DIR}/${image_source_files} | run dd of=${image_target} bs=64k status=progress) 2>&1 | d --progressbox "${title_text}" 5 65 0
     d --msgbox "${image_basename}\n    has been installed to\n${image_target}" 7 80
 }
 
