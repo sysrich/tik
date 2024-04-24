@@ -267,7 +267,7 @@ function dump_image {
     if [ -n "$dry" ]; then
        echo "DEBUG: ${load_text} [${image_target}]..."
     fi
-    (xzcat ${TIK_IMG_DIR}/${image_source_files} | run dd of=${image_target} bs=64k status=progress) | d --progressbox "${title_text}" 5 80
+    (xzcat ${TIK_IMG_DIR}/${image_source_files} | run dd of=${image_target} bs=64k status=progress) 2>&1 | d --progressbox "${title_text}" 5 80
     d --infobox "Please Wait..." 5 80
     sync
     d --msgbox "${image_basename}\n    has been installed to\n${image_target}" 7 80
