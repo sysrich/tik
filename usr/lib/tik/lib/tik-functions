@@ -181,7 +181,7 @@ get_disk() {
             TIK_INSTALL_DEVICE="${device_array[0]}"
         else
             # manually select from storage list
-            d --menu "Select Installation Disk:" 0 0 0 ${list_items}
+            d --menu "Select Installation Disk:" 0 80 0 ${list_items}
             TIK_INSTALL_DEVICE="$result"
         fi
     fi
@@ -246,7 +246,7 @@ get_img() {
             TIK_INSTALL_IMAGE="${img_array[0]}"
         else
             # manually select from storage list
-            d --menu "Select Installation Image:" 0 0 0 ${list_items}
+            d --menu "Select Installation Image:" 0 80 0 ${list_items}
             TIK_INSTALL_IMAGE="$result"
         fi
     fi
@@ -267,8 +267,8 @@ function dump_image {
     if [ -n "$dry" ]; then
        echo "DEBUG: ${load_text} [${image_target}]..."
     fi
-    (xzcat ${TIK_IMG_DIR}/${image_source_files} | run dd of=${image_target} bs=64k status=progress) 2>&1 | d --progressbox "${title_text}" 5 65 0
-    d --infobox "Please Wait..." 7 80
+    (xzcat ${TIK_IMG_DIR}/${image_source_files} | run dd of=${image_target} bs=64k status=progress) | d --progressbox "${title_text}" 5 80
+    d --infobox "Please Wait..." 5 80
     sync
     d --msgbox "${image_basename}\n    has been installed to\n${image_target}" 7 80
 }
