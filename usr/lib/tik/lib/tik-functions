@@ -262,7 +262,7 @@ function dump_image {
     local title_text="Installation..."
 
     local ack_dump_text="Destroying ALL data on\n    ${image_target}\nContinue?"
-    d --yesno "${ack_dump_text}" 6 80
+    d --yesno "${ack_dump_text}" 8 80
 
     if [ -n "$dry" ]; then
        echo "DEBUG: ${load_text} [${image_target}]..."
@@ -270,7 +270,7 @@ function dump_image {
     (xzcat ${TIK_IMG_DIR}/${image_source_files} | run dd of=${image_target} bs=64k status=progress) 2>&1 | d --progressbox "${title_text}" 5 80
     d --infobox "Please Wait..." 5 80
     sync
-    d --msgbox "${image_basename}\n    has been installed to\n${image_target}" 6 80
+    d --msgbox "${image_basename}\n    has been installed to\n${image_target}" 8 80
 }
 
 
