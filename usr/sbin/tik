@@ -68,3 +68,6 @@ dump_image "${TIK_INSTALL_IMAGE}" "${TIK_INSTALL_DEVICE}"
 
 load_modules "post"
 load_modules "post" "etc"
+
+# It worked, reboot
+systemctl reboot
