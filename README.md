@@ -6,7 +6,7 @@ Transactional Installation Kit - A toolkit for deploying Operating System images
 
 A simple, lightweight, extensible tool for deploying a premade OS images to UEFI hardware.
 
-It is inspired by the "SelfInstaller" functionality offered by [kiwi](https://github.com/OSInside/kiwi) OEM images, but is designed to be wholly independant of the toolchain used to create the OS images.
+tik was originally inspired by the "SelfInstaller" functionality offered by [kiwi](https://github.com/OSInside/kiwi) OEM images, but is designed to be wholly independent of the toolchain used to create the OS images.
 
 It's core functionality is very similar to kiwi's SelfInstaller, with the basic workflow for deploying an image being a very simple process:
 
@@ -46,7 +46,7 @@ More importantly, this also means that the Installation Media will have various 
 
 ## tik + ignition + combustion
 
-because tik installation media are built seperately from the Operating System(s) which tik will offer to deploy, this means that tik installation images can also contain a seperate 'ignition/combustion partition' which can have your ignition/combustion configurations stored within
+because tik installation media are built separately from the Operating System(s) which tik will offer to deploy, this means that tik installation images can also contain a separate 'ignition/combustion partition' which can have your ignition/combustion configurations stored within
 
 These will then be automatically used by any OS image which uses ignition or combustion (eg openSUSE MicroOS) on their first boot after tik has deployed an image, assuming the tik Installation USB stick is still connected
 
