@@ -44,13 +44,14 @@ cleanup() {
 	retval=$?
 	log "[STOP][${retval}] $0"
 	if [ "${retval}" != "0" ] && [ "${debug}" != "1" ]; then
-		d --timeout 60 --warning --text="<b>Installation Failed:</b>\n\nSystem is shutting down"
+		zenity --timeout 60 --warning --text="<b>Installation Failed:</b>\n\nSystem is shutting down"
 		systemctl poweroff
 	fi
 	if [ "${retval}" == "0" ] && [ "${debug}" != "1" ]; then
-		d --timeout 5 --info --text="<b>Installation Succeeded:</b>\n\nSystem is rebooting" && systemctl reboot
+		zenity --timeout 5 --info --text="<b>Installation Succeeded:</b>\n\nSystem is rebooting"
+		systemctl reboot
 	fi
-	d --timeout 5 --info --text="<b>Test Succeeded:</b>\n\nHave a nice day!"
+	zenity --timeout 5 --info --text="<b>Test Succeeded:</b>\n\nHave a nice day!"
 }
 trap cleanup EXIT
 
