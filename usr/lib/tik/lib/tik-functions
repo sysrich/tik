@@ -227,8 +227,8 @@ function dump_image {
     local ack_dump_text="Destroying ALL data on\n    ${image_target}\nContinue?"
     d --question --text="${ack_dump_text}"
 
-    (xzcat ${TIK_IMG_DIR}/${image_source_files} | prun dd of=${image_target} bs=64k) | d --progress --title="Installing.." --pulsate --auto-close --no-cancel
-    prun sync | d --progress --title="Please Wait..." --pulsate --auto-close --no-cancel
+    (xzcat ${TIK_IMG_DIR}/${image_source_files} | prun /usr/bin/dd of=${image_target} bs=64k) | d --progress --title="Installing.." --pulsate --auto-close --no-cancel
+    prun /usr/bin/sync | d --progress --title="Please Wait..." --pulsate --auto-close --no-cancel
     d --info --text="${image_basename}\n    has been installed to\n${image_target}"
 }
 

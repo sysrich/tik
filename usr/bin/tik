@@ -20,7 +20,6 @@ log "$0 [START]"
 
 # Check for debug mode
 if [[ $1 == "--debug" ]]; then
-#	set -xv
 	debug=1
 	prun() {
 		echo "[tik][$(date +"%Y%m%d-%T")][prun]: DEBUG, not executing pkexec $@" 1>&2
