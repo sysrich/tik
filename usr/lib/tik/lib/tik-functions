@@ -22,7 +22,7 @@ d(){
 	do
 		retval=0
 		result="$(zenity "$@")" || retval=$?
-		log "[zenity][$retval] $@"
+		log "[zenity][$retval][$result] $@"
 		case $retval in
 		  0)
 			return 0
