@@ -3,7 +3,18 @@
 # SPDX-FileCopyrightText: Copyright 2023-2024 Richard Brown
 
 log(){
-	echo "[tik][$(date +"%Y%m%d-%T")][LOG]: $*" 1>&2
+	echo "[tik][$(date +"%Y%m%d-%T")][LOG] $*" 1>&2
+}
+
+warn() {
+    echo "[tik][$(date +"%Y%m%d-%T")][WARN] $*" 1>&2
+    d --warning --text="$*"
+}
+
+error() {
+    echo "[tik][$(date +"%Y%m%d-%T")][ERROR] $*" 1>&2
+    d --timeout 60 --error --text "$*"
+    exit 1
 }
 
 d(){
@@ -11,29 +22,16 @@ d(){
 	do
 		retval=0
 		result="$(zenity "$@")" || retval=$?
-
+		log "[zenity][$retval] $@"
 		case $retval in
 		  0)
-			echo "[tik][$(date +"%Y%m%d-%T")][zenity]: zenity $@ exited CODE: $retval" 1>&2
 			return 0
 			;;
 		  1|255)
-		    echo "[tik][$(date +"%Y%m%d-%T")][zenity]: zenity $@ exited CODE: $retval" 1>&2
 		    zenity --question --text="Do you really want to quit?" && exit 1
 			;;
 		esac
 	done
-}
-
-warn() {
-    echo "[tik][$(date +"%Y%m%d-%T")][WARN]: $*" 1>&2
-    d --warning --text="$*"
-}
-
-error() {
-    echo "[tik][$(date +"%Y%m%d-%T")][ERROR]: $*" 1>&2
-    d --timeout 60 --error --text "$*"
-    exit 1
 }
 
 get_persistent_device_from_unix_node() {

@@ -16,17 +16,17 @@ tik_dir=/usr/lib/tik
 
 # Start logging
 exec 2> >(exec tee -i -a "${tik_log}" >&2)
-log "$0 [START]"
+log "[START] $0"
 
 # Check for debug mode
 if [[ $1 == "--debug" ]]; then
 	debug=1
 	prun() {
-		echo "[tik][$(date +"%Y%m%d-%T")][prun]: DEBUG, not executing pkexec $@" 1>&2
+		log "[pkexec-noexec] $@"
 	}
 else
 	prun() {
-		echo "[tik][$(date +"%Y%m%d-%T")][prun]: pkexec $@" 1>&2
+		log "[pkexec] $@"
 		pkexec "$@"
 	}
 fi
@@ -42,7 +42,7 @@ fi
 
 cleanup() {
 	retval=$?
-	log "$0 [STOP][${retval}]"
+	log "[STOP][${retval}] $0"
 	if [ "${retval}" != "0" ] && [ "${debug}" != "1" ]; then
 		d --timeout 60 --warning --text="<b>Installation Failed:</b>\n\nSystem is shutting down"
 		systemctl poweroff
