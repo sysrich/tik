@@ -133,7 +133,7 @@ get_disk() {
         device_size=$(echo "${device_meta}" | cut -f2 -d:)
         list_items="${device} ${device_size}"
         message="tik installation device set to to: ${device}"
-        info "${message}" >&2
+        log "${message}"
     fi
     if [ -z "${list_items}" ];then
         local no_device_text="No device(s) for installation found"
@@ -198,7 +198,7 @@ get_img() {
         img_size="$(echo $img_meta | cut -f2 -d:)"
         list_items="${list_items} ${img_filename} ${img_size}"
         message="tik installation image set to to: ${img}"
-        info "${message}" >&2
+        log "${message}"
     fi
     if [ -z "${list_items}" ];then
         local no_image_text="No images(s) for installation found"
