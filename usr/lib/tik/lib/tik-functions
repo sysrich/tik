@@ -155,7 +155,7 @@ get_disk() {
             TIK_INSTALL_DEVICE="${device_array[0]}"
         else
             # manually select from storage list
-            d --list --column=Disk --column=Size --title="Select A Disk" --text="Select the disk to install the operating system to.\n<b>Make sure any important documents and files have been backed up.</b>\n" ${list_items}
+            d --list --column=Disk --column=Size --width=1000 --height=340 --title="Select A Disk" --text="Select the disk to install the operating system to. <b>Make sure any important documents and files have been backed up.</b>\n" ${list_items}
             TIK_INSTALL_DEVICE="$result"
         fi
     fi
