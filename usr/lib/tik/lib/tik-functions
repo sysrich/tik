@@ -7,14 +7,14 @@ log(){
 }
 
 warn() {
-    echo "[tik][$(date +"%Y%m%d-%T")][WARN] $*" 1>&2
-    d --warning --text="$*"
+	echo "[tik][$(date +"%Y%m%d-%T")][WARN] $*" 1>&2
+	d --warning --text="$*"
 }
 
 error() {
-    echo "[tik][$(date +"%Y%m%d-%T")][ERROR] $*" 1>&2
-    d --timeout 60 --error --text "$*"
-    exit 1
+	echo "[tik][$(date +"%Y%m%d-%T")][ERROR] $*" 1>&2
+	d --timeout 60 --error --text "$*"
+	exit 1
 }
 
 d(){
@@ -22,7 +22,7 @@ d(){
 	do
 		retval=0
 		result="$(zenity "$@")" || retval=$?
-		log "[zenity][$retval][$result] $@"
+		log "[zenity][${retval}][${result}] $@"
 		case $retval in
 		  0)
 			return 0
@@ -34,24 +34,35 @@ d(){
 	done
 }
 
+prun() {
+	if [ "${debug}" == "1" ]; then
+		log "[pkexec-noexec] $@"
+	else
+		retval=0
+		pkexec "$@"
+		retval=$?
+		log "[pkexec][${retval}] $@"
+	fi
+}
+
 get_persistent_device_from_unix_node() {
-    local unix_device=$1
-    local schema=$2
-    local node
-    local persistent_name
-    node=$(basename "${unix_device}")
-    for persistent_name in /dev/disk/"${schema}"/*; do
-        if [ "$(basename "$(readlink "${persistent_name}")")" = "${node}" ];then
-            if [[ ${persistent_name} =~ ^/dev/disk/"${schema}"/nvme-eui ]]; then
-                # Filter out nvme-eui nodes as they are not descriptive to the user
-                continue
-            fi
-            echo "${persistent_name}"
-            return
-        fi
-    done
-    warn "Could not find ${schema} representation of ${node}\n\nUsing original device ${unix_device}"
-    echo "${unix_device}"
+	local unix_device=$1
+	local schema=$2
+	local node
+	local persistent_name
+	node=$(basename "${unix_device}")
+	for persistent_name in /dev/disk/"${schema}"/*; do
+	if [ "$(basename "$(readlink "${persistent_name}")")" = "${node}" ];then
+	    if [[ ${persistent_name} =~ ^/dev/disk/"${schema}"/nvme-eui ]]; then
+		# Filter out nvme-eui nodes as they are not descriptive to the user
+		continue
+	    fi
+	    echo "${persistent_name}"
+	    return
+	fi
+	done
+	warn "Could not find ${schema} representation of ${node}\n\nUsing original device ${unix_device}"
+	echo "${unix_device}"
 }
 
 get_disk() {
@@ -233,7 +244,7 @@ function dump_image {
 
 load_modules() {
 local module_dir
-if [[ $2 = "etc" ]]; then
+if [[ $2 = "custom" ]]; then
     module_dir=$TIK_CUSTOM_DIR/modules/$1
 else
     module_dir=$tik_dir/modules/$1

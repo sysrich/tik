@@ -8,7 +8,7 @@
 # lowercase variables = internal, not expected to be defined by users
 # uppercase variables = user facing, expected to be set by config
 
-tik_log=~/.tik.log
+tik_log=~/tik.log
 tik_dir=/usr/lib/tik
 
 # Read libraries
@@ -44,7 +44,8 @@ cleanup() {
 	retval=$?
 	log "[STOP][${retval}] $0"
 	if [ "${retval}" != "0" ] && [ "${debug}" != "1" ]; then
-		zenity --timeout 60 --warning --text="<b>Installation Failed:</b>\n\nSystem is shutting down"
+		zenity --timeout 90 --warning --text="<b>Installation Failed:</b>\n\nPlease file a bug report at http://aeondesktop.org/reportbug\nPlease include the <tt>tik.log</tt> file that has been copied to the IGNITION partition on this USB Stick\n\nSystem is shutting down"
+		cp -a ${tik_log} /ignition
 		systemctl poweroff
 	fi
 	if [ "${retval}" == "0" ] && [ "${debug}" != "1" ]; then
@@ -56,13 +57,13 @@ cleanup() {
 trap cleanup EXIT
 
 load_modules "pre"
-load_modules "pre" "etc"
+load_modules "pre" "custom"
 
 get_disk
 get_img
 dump_image "${TIK_INSTALL_IMAGE}" "${TIK_INSTALL_DEVICE}"
 
 load_modules "post"
-load_modules "post" "etc"
+load_modules "post" "custom"
 
 
