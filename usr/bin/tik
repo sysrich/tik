@@ -44,12 +44,12 @@ cleanup() {
 	retval=$?
 	log "[STOP][${retval}] $0"
 	if [ "${retval}" != "0" ] && [ "${debug}" != "1" ]; then
-		zenity --timeout 90 --warning --text="<b>Installation Failed:</b>\n\nPlease file a bug report at http://aeondesktop.org/reportbug\nPlease include the <tt>tik.log</tt> file that has been copied to the IGNITION partition on this USB Stick\n\nSystem is shutting down"
+		zenity --timeout 90 --error --title="Installation Failed" --text="<span allow_breaks='false'>Please file a bug report at <tt>${TIK_BUG_URL}</tt>\n\nPlease include the <tt>tik.log</tt> file\nIt can be found on the IGNITION partition on this USB Stick\n\n<b>System is shutting down</b></span>"
 		cp -a ${tik_log} /ignition
 		systemctl poweroff
 	fi
 	if [ "${retval}" == "0" ] && [ "${debug}" != "1" ]; then
-		zenity --timeout 5 --info --text="<b>Installation Succeeded:</b>\n\nSystem is rebooting"
+		zenity --timeout 5 --info --title="Installation Complete!" --text="<span allow_breaks='false'>${TIK_OS_NAME} has been installed.\n\n<b>System is rebooting</b></span>"
 		systemctl reboot
 	fi
 	zenity --timeout 5 --info --text="<b>Test Succeeded:</b>\n\nHave a nice day!"
