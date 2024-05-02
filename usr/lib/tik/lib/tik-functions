@@ -235,7 +235,7 @@ function dump_image {
     local image_basename
     image_basename=$(basename "${image_source_files}")
 
-    d --question --title="Begin Installation?" --text="<span allow_breaks='false'>Once the installation begins the changes to the selected disk are irreversible.\n\n<b>Proceeding will fully erase the disk.</b>\n\nContinue with installation?</span>"
+    d --question --no-wrap --title="Begin Installation?" --text="Once the installation begins the changes to the selected disk are irreversible.\n\n<b>Proceeding will fully erase the disk.</b>\n\nContinue with installation?"
 
     (xzcat ${TIK_IMG_DIR}/${image_source_files} | pv -f -F "# %b copied in %t %r" | prun /usr/bin/dd of=${image_target} bs=64k) 2>&1 | d --progress --title="Installing ${TIK_OS_NAME}" --pulsate --auto-close --no-cancel --width=400
     prun /usr/bin/sync | d --progress --title="Syncing" --pulsate --auto-close --no-cancel --width=400
