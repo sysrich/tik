@@ -3,16 +3,16 @@
 # SPDX-FileCopyrightText: Copyright 2023-2024 Richard Brown
 
 log(){
-	echo "[tik][$(date +"%Y%m%d-%T")][LOG] $*" 1>&2
+	echo "[${tik_module}][$(date +"%Y%m%d-%T")][LOG] $*" 1>&2
 }
 
 warn() {
-	echo "[tik][$(date +"%Y%m%d-%T")][WARN] $*" 1>&2
+	echo "[${tik_module}][$(date +"%Y%m%d-%T")][WARN] $*" 1>&2
 	d --warning --text="$*"
 }
 
 error() {
-	echo "[tik][$(date +"%Y%m%d-%T")][ERROR] $*" 1>&2
+	echo "[${tik_module}][$(date +"%Y%m%d-%T")][ERROR] $*" 1>&2
 	d --timeout 60 --error --text "$*"
 	exit 1
 }
@@ -252,7 +252,11 @@ fi
 if [ -n "$(ls -A $module_dir)" ]; then
 for f in $module_dir/*
     do
+    	tik_module="$f"
+    	log "[START] $module_dir/$f"
     	. $f
+    	log "[STOP] $module_dir/$f"
     done
 fi
+tik_module="tik"
 }

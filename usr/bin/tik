@@ -10,6 +10,7 @@
 
 tik_log=~/tik.log
 tik_dir=/usr/lib/tik
+tik_module="tik"
 
 # Read libraries
 . ${tik_dir}/lib/tik-functions
