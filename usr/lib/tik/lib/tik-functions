@@ -153,12 +153,12 @@ get_disk() {
         if [ "${device_index}" -eq 1 ];then
             # one single disk device found, use it
             # Add back full path to it
-            TIK_INSTALL_DEVICE="/dev/disk/by-id/${device_array[0]}"
+            TIK_INSTALL_DEVICE="/dev/disk/${disk_id}/${device_array[0]}"
         else
             # manually select from storage list
             d --list --column=Disk --column=Size --width=1000 --height=340 --title="Select A Disk" --text="Select the disk to install the operating system to. <b>Make sure any important documents and files have been backed up.</b>\n" ${list_items}
             # Add back full path to it
-            TIK_INSTALL_DEVICE="/dev/disk/by-id/$result"
+            TIK_INSTALL_DEVICE="/dev/disk/${disk_id}/${result}"
         fi
     fi
 }
