@@ -232,8 +232,6 @@ function dump_image {
     local image_source_files=$1
     local image_target=$2
     local image_source
-    local image_basename
-    image_basename=$(basename "${image_source_files}")
 
     d --question --no-wrap --title="Begin Installation?" --text="Once the installation begins the changes to the selected disk are irreversible.\n\n<b>Proceeding will fully erase the disk.</b>\n\nContinue with installation?"
 
