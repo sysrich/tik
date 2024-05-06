@@ -239,6 +239,23 @@ function dump_image {
     prun /usr/bin/sync | d --progress --title="Syncing" --pulsate --auto-close --no-cancel --width=400
 }
 
+function set_boot_target {
+	if [ "${debug}" == "1" ]; then
+		log "[debug] Not setting EFI boot target"
+	else
+		# Cleanup any existing openSUSE boot entries
+		prun efibootmgr -B -L "openSUSE Boot Manager"
+		prun efibootmgr -B -L "opensuse-secureboot"
+		prun efibootmgr -B -L "opensuse"
+		# Clear boot order, to make absolutely sure this new installation is first
+		prun efibootmgr -O
+		# Currently assuming Aeon-like partition layout and shim name. This function will need extra intelligence to probe partitions for other image layouts
+		prun efibootmgr -c -L "openSUSE Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p 2
+		# Log to show the resulting eficonfig
+		log "[efibootmgr] $(prun efibootmgr)"
+	fi
+}
+
 
 load_modules() {
 local module_dir
