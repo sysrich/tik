@@ -244,15 +244,15 @@ function set_boot_target {
 		log "[debug] Not setting EFI boot target"
 	else
 		# Cleanup any existing openSUSE boot entries
-		prun efibootmgr -B -L "openSUSE Boot Manager"
-		prun efibootmgr -B -L "opensuse-secureboot"
-		prun efibootmgr -B -L "opensuse"
+		prun /usr/sbin/efibootmgr -B -L "openSUSE Boot Manager"
+		prun /usr/sbin/efibootmgr -B -L "opensuse-secureboot"
+		prun /usr/sbin/efibootmgr -B -L "opensuse"
 		# Clear boot order, to make absolutely sure this new installation is first
-		prun efibootmgr -O
+		prun /usr/sbin/efibootmgr -O
 		# Currently assuming Aeon-like partition layout and shim name. This function will need extra intelligence to probe partitions for other image layouts
-		prun efibootmgr -c -L "openSUSE Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p 2
+		prun /usr/sbin/efibootmgr -c -L "openSUSE Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p 2
 		# Log to show the resulting eficonfig
-		log "[efibootmgr] $(prun efibootmgr)"
+		log "[efibootmgr] $(prun /usr/sbin/efibootmgr)"
 	fi
 }
 
