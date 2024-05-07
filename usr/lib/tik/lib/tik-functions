@@ -228,7 +228,7 @@ get_img() {
     fi
 }
 
-function dump_image {
+dump_image() {
     local image_source_files=$1
     local image_target=$2
     local image_source
@@ -239,7 +239,7 @@ function dump_image {
     prun /usr/bin/sync | d --progress --title="Syncing" --pulsate --auto-close --no-cancel --width=400
 }
 
-function set_boot_target {
+set_boot_target() {
 	if [ "${debug}" == "1" ]; then
 		log "[debug] Not setting EFI boot target"
 	else
@@ -255,7 +255,6 @@ function set_boot_target {
 		log "[efibootmgr] $(prun /usr/sbin/efibootmgr)"
 	fi
 }
-
 
 load_modules() {
 local module_dir
