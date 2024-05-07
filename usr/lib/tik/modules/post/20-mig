@@ -14,10 +14,10 @@ if [ "${migrate}" == 1 ]; then
     	prun /usr/bin/systemd-repart --pretty 0 --root ${mig_dir}/mnt --dry-run=0 ${probedpart}
     	prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var ${probedpart} ${mig_dir}/mnt/var
     	prun /lib/systemd/systemd-growfs ${mig_dir}/mnt/var
-        etcmountcmd=prun $(cat ${mig_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${mig_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${mig_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
-    	eval "$etcmountcmd"
-    	prun /usr/bin/cat ${mig_dir}/passwd.out >> ${mig_dir}/mnt/etc/passwd
-    	prun /usr/bin/cat ${mig_dir}/shadow.out >> ${mig_dir}/mnt/etc/shadow
+        etcmountcmd=$(cat ${mig_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${mig_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${mig_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
+    	eval prun "$etcmountcmd"
+    	prun /usr/bin/cat ${mig_dir}/passwd.out | prun tee -a ${mig_dir}/mnt/etc/passwd
+    	prun /usr/bin/cat ${mig_dir}/shadow.out | prun tee -a ${mig_dir}/mnt/etc/shadow
     	prun /usr/bin/sed -i "/^wheel:/ s/$/$(head -n 1 ${mig_dir}/passwd.out | awk -F'[/:]' '{print $1}')/" ${mig_dir}/mnt/etc/group
     	prun /usr/bin/cp -a ${mig_dir}/system-connections ${mig_dir}/mnt/etc/NetworkManager/system-connections
     	prun /usr/bin/umount ${mig_dir}/mnt/etc
