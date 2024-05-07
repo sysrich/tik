@@ -4,7 +4,7 @@
 
 mig_dir=/var/lib/tik/mig
 snap_dir=homebk
-if [ -d ${mig_dir} ]; then
+if [ ! -d ${mig_dir} ]; then
   prun /usr/bin/mkdir -p ${mig_dir}
 fi
 

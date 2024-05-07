@@ -28,6 +28,7 @@ if [ "${migrate}" == 1 ]; then
     	(prun /usr/sbin/btrfs send ${mig_dir}/${snap_dir} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/mnt) 2>&1 | d --progress --title="Restoring /home" --pulsate --auto-close --no-cancel --width=400
     	prun /usr/bin/mv ${mig_dir}/mnt/${snap_dir} ${mig_dir}/mnt/home
     	prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/mnt/home ro false
+    	# TODO - probe restored home directories, find a marker as to whether aeon-firstboot has run, if not, then copy the desktop from the systems skel to there.
     	prun /usr/bin/umount ${mig_dir}/mnt
     	prun /usr/bin/rmdir ${mig_dir}/mnt
 fi
