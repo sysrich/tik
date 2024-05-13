@@ -28,6 +28,7 @@ probe_partitions() {
 	        log "[probe_partitions] /dev/disk/by-id/${part} found"
 	        if grep -q 'PRETTY_NAME="openSUSE MicroOS"' ${mig_dir}/mnt/${filematch} && [ -f ${mig_dir}/mnt/usr/share/doc/packages/patterns-microos/desktop-gnome.txt ]; then
         		# Found legacy Aeon, activate easter egg
+        		log "Legacy Aeon Install FOUND"
 	        	legacy_aeon=1
 	        fi
 		continue
@@ -35,7 +36,7 @@ probe_partitions() {
 		continue
 	    fi
 	 done
-	 prun /usr/bin/umount ${mig_dir}/mnt
+	 prun-opt /usr/bin/umount ${mig_dir}/mnt
 	 prun /usr/bin/rmdir ${mig_dir}/mnt
 }
 
@@ -49,10 +50,10 @@ if [ ! -z "$(ls -A ${mig_dir})" ]; then
       migrate=1
       log "backup skipped, migration will use existing backup"
    else
-      prun /usr/sbin/btrfs subvolume delete ${mig_dir}/${snap_dir}
-      prun /usr/bin/rm ${mig_dir}/*.out
-      prun /usr/bin/rm ${mig_dir}/system-connections/*
-      prun /usr/bin/rmdir ${mig_dir}/system-connections
+      prun-opt /usr/sbin/btrfs subvolume delete ${mig_dir}/${snap_dir}
+      prun-opt /usr/bin/rm ${mig_dir}/*.out
+      prun-opt /usr/bin/rm ${mig_dir}/system-connections/*
+      prun-opt /usr/bin/rmdir ${mig_dir}/system-connections
   fi
 fi
 
@@ -113,7 +114,8 @@ if [ -z "${skipbackup}" ]; then
       	eval prun "$etcmntcmd"
       	prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534)' ${mig_dir}/mnt/etc/passwd | prun tee ${mig_dir}/passwd.out
       	prun /usr/bin/awk -F'[/:]' '{if ($3 >= 1000 && $3 != 65534) print $1}' ${mig_dir}/mnt/etc/passwd | prun /usr/bin/grep -f - ${mig_dir}/mnt/etc/shadow | prun tee ${mig_dir}/shadow.out
-      	prun /usr/bin/cp -a ${mig_dir}/mnt/etc/NetworkManager/system-connections ${mig_dir}/system-connections
+      	# It's not guaranteed that the system will have existing network configs
+      	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/NetworkManager/system-connections ${mig_dir}/system-connections
       	prun /usr/bin/umount ${mig_dir}/mnt/etc
       	prun /usr/bin/umount ${mig_dir}/mnt/var
       	prun /usr/bin/umount ${mig_dir}/mnt

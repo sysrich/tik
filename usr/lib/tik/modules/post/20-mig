@@ -19,7 +19,8 @@ if [ "${migrate}" == 1 ]; then
     	prun /usr/bin/cat ${mig_dir}/passwd.out | prun tee -a ${mig_dir}/mnt/etc/passwd
     	prun /usr/bin/cat ${mig_dir}/shadow.out | prun tee -a ${mig_dir}/mnt/etc/shadow
     	prun /usr/bin/sed -i "/^wheel:/ s/$/$(head -n 1 ${mig_dir}/passwd.out | awk -F'[/:]' '{print $1}')/" ${mig_dir}/mnt/etc/group
-    	prun /usr/bin/cp -a ${mig_dir}/system-connections/* ${mig_dir}/mnt/etc/NetworkManager/system-connections
+    	# It's not guaranteed that the system will have existing network configs
+    	prun-opt /usr/bin/cp -a ${mig_dir}/system-connections/* ${mig_dir}/mnt/etc/NetworkManager/system-connections
     	prun /usr/bin/umount ${mig_dir}/mnt/etc
 	prun /usr/bin/umount ${mig_dir}/mnt/var
     	prun /usr/bin/umount ${mig_dir}/mnt

@@ -34,7 +34,8 @@ d(){
 	done
 }
 
-prun() {
+# variant of privileged run (prun) function that doesn't require the pkexec call to return 0
+prun-opt() {
 	if [ "${debug}" == "1" ]; then
 		log "[pkexec-noexec] $@"
 	else
@@ -42,6 +43,14 @@ prun() {
 		pkexec "$@"
 		retval=$?
 		log "[pkexec][${retval}] $@"
+	fi
+}
+
+# Most commonly used prun function, which requires the called command to work
+prun() {
+	prun-opt "$@"
+	if [ "${retval}" != "0" ]; then
+		error "Command <tt>$@</tt> FAILED"
 	fi
 }
 
@@ -244,7 +253,7 @@ set_boot_target() {
 		log "[debug] Not setting EFI boot target"
 	else
 		# Cleanup any existing openSUSE boot entries
-		prun /usr/sbin/efibootmgr -B -L "openSUSE Boot Manager"
+		prun-opt /usr/sbin/efibootmgr -B -L "openSUSE Boot Manager"
 		prun /usr/sbin/efibootmgr -O
 		# Currently assuming Aeon-like partition layout and shim name. This function will need extra intelligence to probe partitions for other image layouts
 		prun /usr/sbin/efibootmgr -c -L "openSUSE Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p 2
