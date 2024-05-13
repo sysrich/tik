@@ -54,6 +54,9 @@ if [ ! -z "$(ls -A ${mig_dir})" ]; then
       prun-opt /usr/bin/rm ${mig_dir}/*.out
       prun-opt /usr/bin/rm ${mig_dir}/system-connections/*
       prun-opt /usr/bin/rmdir ${mig_dir}/system-connections
+      prun-opt /usr/bin/rm ${mig_dir}/users/*
+      prun-opt /usr/bin/rmdir ${mig_dir}/users
+      prun-opt /usr/bin/rm ${mig_dir}/localtime
   fi
 fi
 
@@ -114,8 +117,10 @@ if [ -z "${skipbackup}" ]; then
       	eval prun "$etcmntcmd"
       	prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534)' ${mig_dir}/mnt/etc/passwd | prun tee ${mig_dir}/passwd.out
       	prun /usr/bin/awk -F'[/:]' '{if ($3 >= 1000 && $3 != 65534) print $1}' ${mig_dir}/mnt/etc/passwd | prun /usr/bin/grep -f - ${mig_dir}/mnt/etc/shadow | prun tee ${mig_dir}/shadow.out
-      	# It's not guaranteed that the system will have existing network configs
+      	prun /usr/bin/cp -a ${mig_dir}/mnt/var/lib/AccountsService/users ${mig_dir}/users
+      	# It's not guaranteed that the system will have existing network configs or a custom localtime
       	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/NetworkManager/system-connections ${mig_dir}/system-connections
+      	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/localtime ${mig_dir}/localtime
       	prun /usr/bin/umount ${mig_dir}/mnt/etc
       	prun /usr/bin/umount ${mig_dir}/mnt/var
       	prun /usr/bin/umount ${mig_dir}/mnt
