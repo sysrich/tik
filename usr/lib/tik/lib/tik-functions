@@ -13,7 +13,7 @@ warn() {
 
 error() {
 	echo "[${tik_module}][$(date +"%Y%m%d-%T")][ERROR] $*" 1>&2
-	d --timeout 60 --error --text "$*"
+	d --error --text "$*"
 	exit 1
 }
 
