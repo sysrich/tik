@@ -26,7 +26,7 @@ probe_partitions() {
 	    if [ -f ${mig_dir}/mnt/${filematch} ]; then
 	        probedpart=/dev/disk/by-id/${part}
 	        log "[probe_partitions] /dev/disk/by-id/${part} found"
-	        if grep -q 'PRETTY_NAME="openSUSE MicroOS"' ${mig_dir}/mnt/${filematch} && [ -f ${mig_dir}/mnt/usr/share/doc/packages/patterns-microos/desktop-gnome.txt ]; then
+	        if grep -q 'PRETTY_NAME="openSUSE MicroOS"' ${mig_dir}/mnt/${filematch} && [ -f ${mig_dir}/mnt/usr/bin/gnome-shell ]; then
         		# Found legacy Aeon, activate easter egg
         		log "Legacy Aeon Install FOUND"
 	        	legacy_aeon=1
