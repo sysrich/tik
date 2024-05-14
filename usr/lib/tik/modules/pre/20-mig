@@ -123,6 +123,7 @@ if [ -z "${skipbackup}" ]; then
       	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/NetworkManager/system-connections ${mig_dir}/system-connections
       	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/localtime ${mig_dir}/localtime
       	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/AccountsService/users ${mig_dir}/users
+      	prun-opt /usr/bin/chmod 744 ${mig_dir}/users
       	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/AccountsService/icons ${mig_dir}/icons
       	prun /usr/bin/umount ${mig_dir}/mnt/etc
       	prun /usr/bin/umount ${mig_dir}/mnt/var
