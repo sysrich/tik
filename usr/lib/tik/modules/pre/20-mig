@@ -50,6 +50,10 @@ if [ ! -z "$(ls -A ${mig_dir})" ]; then
       migrate=1
       log "backup skipped, migration will use existing backup"
    else
+      prun-opt /usr/sbin/btrfs property set -f -ts ${mig_dir}/${snap_dir} ro false
+      for subsubvol in $(prun-opt /usr/sbin/btrfs subvolume list -o ${mig_dir}/${snap_dir} --sort=path | rev | cut -f1 -d' ' | rev | sed "s/^@//"); do
+		prun /usr/sbin/btrfs subvolume delete ${subsubvol}
+      done
       prun-opt /usr/sbin/btrfs subvolume delete ${mig_dir}/${snap_dir}
       prun-opt /usr/bin/rm ${mig_dir}/*.out
       prun-opt /usr/bin/rm ${mig_dir}/system-connections/*
@@ -59,6 +63,9 @@ if [ ! -z "$(ls -A ${mig_dir})" ]; then
       prun-opt /usr/bin/rm ${mig_dir}/icons/*
       prun-opt /usr/bin/rmdir ${mig_dir}/icons
       prun-opt /usr/bin/rm ${mig_dir}/localtime
+      prun-opt /usr/bin/rm ${mig_dir}/subgid
+      prun-opt /usr/bin/rm ${mig_dir}/subuid
+      prun-opt /usr/bin/rmdir ${mig_dir}/mnt
   fi
 fi
 
@@ -112,12 +119,25 @@ if [ -z "${skipbackup}" ]; then
 	prun /usr/sbin/btrfs subvolume snapshot -r ${mig_dir}/mnt ${mig_dir}/mnt/${snap_dir}
       	(prun /usr/sbin/btrfs send ${mig_dir}/mnt/${snap_dir} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}) 2>&1 | d --progress --title="Backing up /home" --pulsate --auto-close --no-cancel --width=400
         prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/${snap_dir}
+        # Probe for subvolumes nested beneath /home and back them up also
+        if (prun-opt /usr/sbin/btrfs subvolume list -o ${mig_dir}/mnt | grep -q "ID "); then
+	prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/${snap_dir} ro false
+		for subsubvol in $(prun-opt /usr/sbin/btrfs subvolume list -o ${mig_dir}/mnt --sort=path | rev | cut -f1 -d' ' | rev | sed 's/^@\/home//'); do
+			subsubvolname=$(basename $subsubvol)
+			subsubdirname=$(dirname $subsubvol)
+			prun /usr/sbin/btrfs subvolume snapshot -r ${mig_dir}/mnt/${subsubvol} ${mig_dir}/mnt/${subsubvolname}
+			(prun /usr/sbin/btrfs send ${mig_dir}/mnt/${subsubvolname} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/${snap_dir}/${subsubdirname}) 2>&1 | d --progress --title="Backing up containers" --pulsate --auto-close --no-cancel --width=400
+			prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/${subsubvolname}
+		done
+        prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/${snap_dir} ro true
+        fi
       	prun /usr/bin/umount ${mig_dir}/mnt
       	prun /usr/bin/mount -o compress=zstd:1 ${probedpart} ${mig_dir}/mnt
       	prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var ${probedpart} ${mig_dir}/mnt/var
         etcmntcmd=$(cat ${mig_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${mig_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${mig_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
       	eval prun "$etcmntcmd"
       	prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534)' ${mig_dir}/mnt/etc/passwd | prun tee ${mig_dir}/passwd.out
+	prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534 && $3 != 65533)' ${mig_dir}/mnt/etc/group | prun tee ${mig_dir}/group.out
       	prun /usr/bin/awk -F'[/:]' '{if ($3 >= 1000 && $3 != 65534) print $1}' ${mig_dir}/mnt/etc/passwd | prun /usr/bin/grep -f - ${mig_dir}/mnt/etc/shadow | prun tee ${mig_dir}/shadow.out
       	prun /usr/bin/cp -a ${mig_dir}/mnt/etc/subuid ${mig_dir}/subuid
       	prun /usr/bin/cp -a ${mig_dir}/mnt/etc/subgid ${mig_dir}/subgid
