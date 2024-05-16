@@ -1,5 +1,36 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: Copyright 2024 SUSE LLC
 # SPDX-FileCopyrightText: Copyright 2024 Richard Brown
+# File Author: Raymond Yip
 
-d --info --ok-label="Install Now" --no-wrap --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME}</big>\n\nPlease press <b>Install Now</b> to continue"
+proceedInstall() {
+	d --info --ok-label="Install Now" --no-wrap --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME}</big>\n\nPlease press <b>Install Now</b> to continue"
+}
+
+warningMSG() {
+	d --warning --no-wrap --title="AC Power Required" --text="Please connect the AC power adapter to your machine to continue" 
+}
+
+checkLaptop() {
+	chassis=`cat /sys/class/dmi/id/chassis_type`
+	#Test for respectively Handheld, Notebook, Laptop, and Portable
+	if [ $chassis = "11" ] || [ $chassis = "10" ] || [ $chassis = "9" ] || [ $chassis = "8" ]; then
+		#Tested machine is confirmed mobile
+		#Check for AC power connection
+		#Check file exists first
+		if [ -f "/sys/class/power_supply/AC/online" ]; then
+			#File exists
+			#While the AC power cable is still disconnected
+			while (grep -Fxq "0" "/sys/class/power_supply/AC/online"); do
+				echo "AC power disconnected"
+				#Display warning message
+				warningMSG
+			done
+		fi
+	fi
+}
+
+proceedInstall
+checkLaptop
+
+
