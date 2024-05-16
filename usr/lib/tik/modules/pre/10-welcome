@@ -27,13 +27,10 @@ checkLaptop() {
 				warningMSG
 			done
 		fi
-		proceedInstall
-	else
-		#Tested machine is a desktop
-		proceedInstall
 	fi
 }
 
+proceedInstall
 checkLaptop
 
 
