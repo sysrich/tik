@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: Copyright 2024 SUSE LLC
-# SPDX-FileCopyrightText: Copyright 2024 Raymond Yip
+# SPDX-FileCopyrightText: Copyright 2024 Richard Brown
+# File Author: Raymond Yip
 
 proceedInstall() {
 	d --info --ok-label="Install Now" --no-wrap --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME}</big>\n\nPlease press <b>Install Now</b> to continue"
