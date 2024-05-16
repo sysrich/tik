@@ -8,7 +8,7 @@ proceedInstall() {
 }
 
 warningMSG() {
-	d --warning --ok-label="OK" --no-wrap --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="Please connect the AC power adapter to your machine to continue" 
+	d --warning --no-wrap --title="AC Power Required" --text="Please connect the AC power adapter to your machine to continue" 
 }
 
 checkLaptop() {
@@ -21,11 +21,10 @@ checkLaptop() {
 		if [ -f "/sys/class/power_supply/AC/online" ]; then
 			#File exists
 			#While the AC power cable is still disconnected
-			while (grep -Fxq "0" "/sys/class/power_supply/AC/online"); then
+			while (grep -Fxq "0" "/sys/class/power_supply/AC/online"); do
 				echo "AC power disconnected"
 				#Display warning message
-				warningMSG()
-				sleep 1
+				warningMSG
 			done
 		fi
 		proceedInstall
