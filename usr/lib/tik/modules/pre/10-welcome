@@ -22,7 +22,7 @@ checkLaptop() {
 			#File exists
 			#While the AC power cable is still disconnected
 			while (grep -Fxq "0" "/sys/class/power_supply/AC/online"); do
-				echo "AC power disconnected"
+				log "AC power disconnected"
 				#Display warning message
 				warningMSG
 			done
