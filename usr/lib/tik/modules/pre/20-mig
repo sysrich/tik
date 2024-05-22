@@ -116,6 +116,10 @@ if [ -z "${skipbackup}" ]; then
 	# We're migrating, lets go!
 	prun /usr/bin/mkdir ${mig_dir}/mnt
 	prun /usr/bin/mount -o compress=zstd:1,subvol=/@/home ${probedpart} ${mig_dir}/mnt
+	# Check for existing snapshot from interrupted backup and delete if it exists boo#1224824
+	if [ -d ${mig_dir}/mnt/${snap_dir} ]; then
+		prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/${snap_dir}
+	fi
 	prun /usr/sbin/btrfs subvolume snapshot -r ${mig_dir}/mnt ${mig_dir}/mnt/${snap_dir}
       	(prun /usr/sbin/btrfs send ${mig_dir}/mnt/${snap_dir} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}) 2>&1 | d --progress --title="Backing up /home" --pulsate --auto-close --no-cancel --width=400
         prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/${snap_dir}
