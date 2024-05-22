@@ -72,6 +72,30 @@ fi
 get_disk
 
 if [ -z "${skipbackup}" ]; then
+  # Although Legacy Aeon didn't officially support LUKS encrypted installations,
+  # some users might have nevertheless enabled encryption anyway.
+  # Search for existing crypto_LUKS partitions and, if found, prompt the user
+  # to unlock those so that the migration module can find existing data.
+  for encrypted_partition in $(lsblk ${TIK_INSTALL_DEVICE} -p -n -r -o ID-LINK,FSTYPE|tr -s ' ' ":"|grep ":crypto_LUKS"|cut -d: -f1); do
+      if [ -e /dev/mapper/crypt_${encrypted_partition} ]; then
+          # Already opened for some reason... do not prompt for the passphrase
+          # but ensure we will clean up afterwards
+          crypt_opened="${crypt_opened} crypt_${encrypted_partition}"
+      else
+          while [ 1 ]; do
+              passphrase=$(zenity --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip") || break
+              if [ -n "${passphrase}" ]; then
+                  echo -n "${passphrase}" | prun /usr/sbin/cryptsetup luksOpen /dev/disk/by-id/${encrypted_partition} crypt_${encrypted_partition}
+                  if [ "${?}" -eq 0 ]; then
+                      crypt_opened="${crypt_opened} crypt_${encrypted_partition}"
+                      break
+                  fi
+              fi
+          done
+      fi
+  done
+  unset passphrase
+
   # Probe selected disk for a btrfs partition containing /usr/lib/os-release
   probe_partitions $TIK_INSTALL_DEVICE "btrfs" "/usr/lib/os-release"
 
@@ -152,4 +176,14 @@ if [ -z "${skipbackup}" ]; then
       	prun /usr/bin/umount ${mig_dir}/mnt
       	prun /usr/bin/rmdir ${mig_dir}/mnt
   fi
+
+  # Close eventual mapped LUKS devices
+  if [ -n "${crypt_opened}" ]; then
+      for mapped_partition in ${crypt_opened}; do
+          if [ -e /dev/mapper/crypt_${encrypted_partition} ]; then
+              prun /usr/sbin/cryptsetup luksClose /dev/mapper/${mapped_partition}
+          fi
+      done
+  fi
+
 fi
