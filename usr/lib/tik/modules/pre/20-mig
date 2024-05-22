@@ -164,7 +164,7 @@ if [ -z "${skipbackup}" ]; then
       	prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var ${probedpart} ${mig_dir}/mnt/var
         etcmntcmd=$(cat ${mig_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${mig_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${mig_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
       	eval prun "$etcmntcmd"
-      	prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534)' ${mig_dir}/mnt/etc/passwd | prun tee ${mig_dir}/passwd.out
+	prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534)' ${mig_dir}/mnt/etc/passwd | prun /usr/bin/awk -F':' '{ $7="/bin/bash"; print };' OFS=':' | prun tee ${mig_dir}/passwd.out
 	prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534 && $3 != 65533)' ${mig_dir}/mnt/etc/group | prun tee ${mig_dir}/group.out
       	prun /usr/bin/awk -F'[/:]' '{if ($3 >= 1000 && $3 != 65534) print $1}' ${mig_dir}/mnt/etc/passwd | prun /usr/bin/grep -f - ${mig_dir}/mnt/etc/shadow | prun tee ${mig_dir}/shadow.out
       	prun /usr/bin/cp -a ${mig_dir}/mnt/etc/subuid ${mig_dir}/subuid
