@@ -2,6 +2,21 @@
 # SPDX-FileCopyrightText: Copyright 2024 SUSE LLC
 # SPDX-FileCopyrightText: Copyright 2024 Richard Brown
 
+writemigdesktop() {
+	prun-opt /usr/bin/cat >> $1/.config/autostart/aeon-mig-firstboot.desktop << "EOF"
+[Desktop Entry]
+Name=Aeon Migration FirstBoot Setup
+Comment=Sets up Aeon Correctly On FirstBoot after Migration
+Exec=/usr/bin/aeon-mig-firstboot
+Icon=org.gnome.Terminal
+Type=Application
+Categories=Utility;System;
+Name[en_GB]=startup
+EOF
+	prun-opt /usr/bin/chmod 666 $1/.config/autostart/aeon-mig-firstboot.desktop
+}
+
+
 if [ "${migrate}" == 1 ]; then
 	probe_partitions $TIK_INSTALL_DEVICE "btrfs" "/usr/lib/os-release"
 
@@ -43,7 +58,9 @@ if [ "${migrate}" == 1 ]; then
 		prun-opt /usr/bin/sed -i 's/driver = "overlay"/driver = "btrfs"/g' ${mig_dir}/mnt/etc/containers/storage.conf
 
         done
-    	# TODO - probe restored home directories, find a marker as to whether aeon-firstboot has run, if not, then copy the desktop from the systems skel to there.
+    	for userhome in ${mig_dir}/mnt/home/*/; do
+    		writemigdesktop $userhome
+    	done
     	prun /usr/bin/umount ${mig_dir}/mnt
     	prun /usr/bin/rmdir ${mig_dir}/mnt
 fi
