@@ -100,6 +100,11 @@ get_disk() {
     for disk_meta in $(
         eval lsblk "${blk_opts}" | grep -E "disk|raid" | tr ' ' ":"
     );do
+        disk_size=$(echo "${disk_meta}" | cut -f2 -d:)
+        if [[ "${disk_size}" == "0B" ]]; then
+            # ignore disks with no size, e.g. empty SD card readers
+            continue
+        fi
         disk_device="$(echo "${disk_meta}" | cut -f1 -d:)"
         if [[ "${tik_install_disk_part}" == "${disk_device}"* ]]; then
             # ignore install source device
@@ -113,7 +118,6 @@ get_disk() {
             # ignore zram devices
             continue
         fi
-        disk_size=$(echo "${disk_meta}" | cut -f2 -d:)
         disk_device_by_id=$(
             get_persistent_device_from_unix_node "${disk_device}" "${disk_id}"
         )
