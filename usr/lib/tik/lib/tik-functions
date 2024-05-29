@@ -167,11 +167,23 @@ get_disk() {
             # one single disk device found, use it
             # Add back full path to it
             TIK_INSTALL_DEVICE="/dev/disk/${disk_id}/${device_array[0]}"
+
+            # Fallback to unix device in case by-id does not exist
+            # see get_persistent_device_from_unix_node, it does fallback like this.
+            if [ ! -e "${TIK_INSTALL_DEVICE}" ]; then
+                TIK_INSTALL_DEVICE="/dev/${device_array[0]}"
+            fi
         else
             # manually select from storage list
             d --list --column=Disk --column=Size --width=1000 --height=340 --title="Select A Disk" --text="Select the disk to install the operating system to. <b>Make sure any important documents and files have been backed up.</b>\n" ${list_items}
             # Add back full path to it
             TIK_INSTALL_DEVICE="/dev/disk/${disk_id}/${result}"
+
+            # Fallback to unix device in case by-id does not exist
+            # see get_persistent_device_from_unix_node, it does fallback like this.
+            if [ ! -e "${TIK_INSTALL_DEVICE}" ]; then
+                TIK_INSTALL_DEVICE="/dev/${result}"
+            fi
         fi
     fi
 }
