@@ -42,6 +42,7 @@ if [ "${migrate}" == 1 ]; then
     	prun-opt /usr/bin/cp -a ${mig_dir}/localtime ${mig_dir}/mnt/etc/localtime
     	prun-opt /usr/bin/cp -a ${mig_dir}/users/* ${mig_dir}/mnt/var/lib/AccountsService/users
     	prun-opt /usr/bin/cp -a ${mig_dir}/icons/* ${mig_dir}/mnt/var/lib/AccountsService/icons
+    	prun-opt /usr/bin/cp -a ${mig_dir}/bluetooth/* ${mig_dir}/mnt/var/lib/bluetooth
     	prun /usr/bin/umount ${mig_dir}/mnt/etc
 	prun /usr/bin/umount ${mig_dir}/mnt/var
     	prun /usr/bin/umount ${mig_dir}/mnt
