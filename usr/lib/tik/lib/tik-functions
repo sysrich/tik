@@ -89,6 +89,13 @@ get_disk() {
     local message
     local blk_opts_plus_label="${blk_opts},LABEL"
     local tik_install_disk_part
+    local part_meta
+    local part_count
+    local part_size
+    local part_info
+    local part_label
+    local part_fs
+    local blk_opts_part_info="${blk_opts_plus_label},FSTYPE"
 
     tik_install_disk_part=$(
         eval lsblk "${blk_opts_plus_label}" | \
@@ -106,6 +113,28 @@ get_disk() {
             continue
         fi
         disk_device="$(echo "${disk_meta}" | cut -f1 -d:)"
+        # find partitions and info for this disk
+        part_count=0
+        part_info=""
+        for part_meta in $(
+            eval lsblk "${blk_opts_part_info}" | grep -E "${disk_device}.+part.+" | tr ' ' ":"
+        );do
+            part_count=$(expr $part_count + 1)
+            part_size=$(echo "${part_meta}" | cut -f2 -d:)
+            part_label=$(echo "${part_meta}" | cut -f4 -d:)
+            part_fs=$(echo "${part_meta}" | cut -f5 -d:)
+            if [ -n "${part_info}" ]; then
+                part_info="${part_info};"
+            fi
+            if [ -n "${part_label}" ]; then
+                part_info="${part_info}${part_label}"
+            fi
+            if [ -n "${part_fs}" ]; then
+                part_info="${part_info}(${part_fs},${part_size})"
+            else
+                part_info="${part_info}(${part_size})"
+            fi
+        done
         if [[ "${tik_install_disk_part}" == "${disk_device}"* ]]; then
             # ignore install source device
             continue
@@ -124,7 +153,8 @@ get_disk() {
         if [ -n "${disk_device_by_id}" ];then
             disk_device=${disk_device_by_id}
         fi
-        list_items="${list_items} $(basename ${disk_device}) ${disk_size}"
+        list_items="${list_items} $(basename ${disk_device}) ${disk_size} ${part_count} ${part_info}"
+        disk_list="${disk_list} $(basename ${disk_device}) ${disk_size}"
     done
     if [ -n "${TIK_INSTALL_DEVICE}" ];then
         # install device overwritten by config.
@@ -144,7 +174,9 @@ get_disk() {
             grep -E "disk|raid" | tr ' ' ":"
         )
         device_size=$(echo "${device_meta}" | cut -f2 -d:)
+        # this case is not shown in manual selection, threfore we don't need partition info        
         list_items="$(basename ${device}) ${device_size}"
+        disk_list="$(basename ${device}) ${device_size}"
         message="tik installation device set to to: ${device}"
         log "${message}"
     fi
@@ -152,7 +184,6 @@ get_disk() {
         local no_device_text="No device(s) for installation found."
         error "${no_device_text}"
     fi
-    disk_list=${list_items}
     if [ -n "${disk_list}" ];then
         local count=0
         local device_index=0
@@ -175,7 +206,7 @@ get_disk() {
             fi
         else
             # manually select from storage list
-            d --list --column=Disk --column=Size --width=1000 --height=340 --title="Select A Disk" --text="Select the disk to install the operating system to. <b>Make sure any important documents and files have been backed up.</b>\n" ${list_items}
+            d --list --column=Disk --column=Size --column=Partitions --column=Partition-info --width=1000 --height=340 --title="Select A Disk" --text="Select the disk to install the operating system to. <b>Make sure any important documents and files have been backed up.</b>\n" ${list_items}
             # Add back full path to it
             TIK_INSTALL_DEVICE="/dev/disk/${disk_id}/${result}"
 
@@ -201,9 +232,9 @@ get_img() {
     for img_meta in $(
         eval cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" *.raw.xz | tr '	' ":")
     );do
-         img_filename="$(echo $img_meta | cut -f1 -d:)"
-         img_size="$(echo $img_meta | cut -f2 -d:)"
-         list_items="${list_items} ${img_filename} ${img_size}"
+        img_filename="$(echo $img_meta | cut -f1 -d:)"
+        img_size="$(echo $img_meta | cut -f2 -d:)"
+        list_items="${list_items} ${img_filename} ${img_size}"
     done
     if [ -n "${TIK_INSTALL_IMAGE}" ];then
         # install image overwritten by config.
