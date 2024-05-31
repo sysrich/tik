@@ -175,6 +175,7 @@ if [ -z "${skipbackup}" ]; then
       	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/AccountsService/users ${mig_dir}/users
       	prun-opt /usr/bin/chmod 744 ${mig_dir}/users
       	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/AccountsService/icons ${mig_dir}/icons
+      	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/bluetooth ${mig_dir}/bluetooth
       	prun-opt /usr/bin/umount ${mig_dir}/mnt/etc
       	prun /usr/bin/umount ${mig_dir}/mnt/var
       	prun /usr/bin/umount ${mig_dir}/mnt
