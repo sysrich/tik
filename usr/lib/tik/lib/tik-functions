@@ -182,7 +182,7 @@ get_disk() {
             # Fallback to unix device in case by-id does not exist or if a usb stick is recognized
             # see get_persistent_device_from_unix_node, it does fallback like this.
             if [[ ! -e "${TIK_INSTALL_DEVICE}" || "${TIK_INSTALL_DEVICE}" == *":0"* ]]; then
-                TIK_INSTALL_DEVICE=$(readlink -f "${TIK_INSTALL_DEVICE}")
+                TIK_INSTALL_DEVICE="/dev/${result}"
             fi
         fi
     fi
