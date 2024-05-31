@@ -168,9 +168,9 @@ get_disk() {
             # Add back full path to it
             TIK_INSTALL_DEVICE="/dev/disk/${disk_id}/${device_array[0]}"
 
-            # Fallback to unix device in case by-id does not exist
+            # Fallback to unix device in case by-id does not exist or if a usb stick is recognized
             # see get_persistent_device_from_unix_node, it does fallback like this.
-            if [ ! -e "${TIK_INSTALL_DEVICE}" ]; then
+            if [[ ! -e "${TIK_INSTALL_DEVICE}" || "${TIK_INSTALL_DEVICE}" == *":0"* ]]; then
                 TIK_INSTALL_DEVICE="/dev/${device_array[0]}"
             fi
         else
@@ -179,9 +179,9 @@ get_disk() {
             # Add back full path to it
             TIK_INSTALL_DEVICE="/dev/disk/${disk_id}/${result}"
 
-            # Fallback to unix device in case by-id does not exist
+            # Fallback to unix device in case by-id does not exist or if a usb stick is recognized
             # see get_persistent_device_from_unix_node, it does fallback like this.
-            if [ ! -e "${TIK_INSTALL_DEVICE}" ]; then
+            if [[ ! -e "${TIK_INSTALL_DEVICE}" || "${TIK_INSTALL_DEVICE}" == *":0"* ]]; then
                 TIK_INSTALL_DEVICE="/dev/${result}"
             fi
         fi
