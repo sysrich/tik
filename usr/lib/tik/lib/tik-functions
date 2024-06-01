@@ -93,7 +93,6 @@ get_disk() {
     local part_count
     local part_size
     local part_info
-    local part_label
     local part_fs
     local blk_opts_part_info="${blk_opts_plus_label},FSTYPE"
 
@@ -121,14 +120,10 @@ get_disk() {
         );do
             part_count=$(expr $part_count + 1)
             part_size=$(echo "${part_meta}" | cut -f2 -d:)
-            part_label=$(echo "${part_meta}" | cut -f4 -d:)
             part_fs=$(echo "${part_meta}" | cut -f5 -d:)
             if [ -n "${part_info}" ]; then
                 part_info="${part_info},"
             fi
-#            if [ -n "${part_label}" ]; then
-#                part_info="${part_info}${part_label}"
-#            fi
             if [ -n "${part_fs}" ]; then
                 part_info="${part_info}${part_fs}(${part_size})"
             else
