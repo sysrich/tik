@@ -124,15 +124,15 @@ get_disk() {
             part_label=$(echo "${part_meta}" | cut -f4 -d:)
             part_fs=$(echo "${part_meta}" | cut -f5 -d:)
             if [ -n "${part_info}" ]; then
-                part_info="${part_info};"
+                part_info="${part_info},"
             fi
-            if [ -n "${part_label}" ]; then
-                part_info="${part_info}${part_label}"
-            fi
+#            if [ -n "${part_label}" ]; then
+#                part_info="${part_info}${part_label}"
+#            fi
             if [ -n "${part_fs}" ]; then
-                part_info="${part_info}(${part_fs},${part_size})"
+                part_info="${part_info}${part_fs}(${part_size})"
             else
-                part_info="${part_info}(${part_size})"
+                part_info="${part_info}unknown(${part_size})"
             fi
         done
         if [[ "${tik_install_disk_part}" == "${disk_device}"* ]]; then
@@ -206,7 +206,7 @@ get_disk() {
             fi
         else
             # manually select from storage list
-            d --list --column=Disk --column=Size --column=Partitions --column=Partition-info --width=1000 --height=340 --title="Select A Disk" --text="Select the disk to install the operating system to. <b>Make sure any important documents and files have been backed up.</b>\n" ${list_items}
+            d --list --column=Disk --column=Size --column=Partitions --column=Filesystems --width=1000 --height=340 --title="Select A Disk" --text="Select the disk to install the operating system to. <b>Make sure any important documents and files have been backed up.</b>\n" ${list_items}
             # Add back full path to it
             TIK_INSTALL_DEVICE="/dev/disk/${disk_id}/${result}"
 
