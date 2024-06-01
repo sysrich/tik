@@ -174,7 +174,7 @@ get_disk() {
                 TIK_INSTALL_DEVICE="/dev/${device_array[0]}"
             fi
             # Fallback to unix device in case a usb stick was recognized
-            if [ "${TIK_INSTALL_DEVICE}" == *":0"* ]; then
+            if [[ "${TIK_INSTALL_DEVICE}" == *":0"* ]]; then
                 TIK_INSTALL_DEVICE="$(readlink -f "/dev/disk/"${disk_id}"/"${result}"")"
             fi
         else
@@ -189,7 +189,7 @@ get_disk() {
                 TIK_INSTALL_DEVICE="/dev/${result}"
             fi
             # Fallback to unix device in case a usb stick was recognized
-            if [ "${TIK_INSTALL_DEVICE}" == *":0"* ]; then
+            if [[ "${TIK_INSTALL_DEVICE}" == *":0"* ]]; then
                 TIK_INSTALL_DEVICE="$(readlink -f "/dev/disk/"${disk_id}"/"${result}"")"
             fi
         fi
