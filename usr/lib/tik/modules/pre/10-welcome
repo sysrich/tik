@@ -8,7 +8,7 @@ proceedInstall() {
 }
 
 warningMSG() {
-	d --warning --no-wrap --title="AC Power Required" --text="Please connect the AC power adapter to your machine to continue" 
+	d --warning --no-wrap --title="AC Power Recommended" --text="Runnning on battery power detected\n\nIt is recommended to connect the system to AC power during the install" 
 }
 
 checkLaptop() {
@@ -20,17 +20,21 @@ checkLaptop() {
 		#Check file exists first
 		if [ -f "/sys/class/power_supply/AC/online" ]; then
 			#File exists
-			#While the AC power cable is still disconnected
-			while (grep -Fxq "0" "/sys/class/power_supply/AC/online"); do
+			#Show warning if detected that AC power is disconnected but don't block user from proceeding
+			if (grep -Fxq "0" "/sys/class/power_supply/AC/online"); then
 				log "AC power disconnected"
 				#Display warning message
 				warningMSG
-			done
+			fi
+		fi
+		#Check Batteries for state
+		if (grep -RExq 'Discharging|Not charging' /sys/class/power_supply/BAT*); then
+			log "Battery is not charging"
+			#Display warning message
+			warningMSG
 		fi
 	fi
 }
 
 proceedInstall
 checkLaptop
-
-
