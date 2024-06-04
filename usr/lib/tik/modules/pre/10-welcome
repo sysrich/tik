@@ -10,7 +10,7 @@ proceedInstall() {
 }
 
 warningMSG() {
-    d --warning --no-wrap --title="AC Power Recommended" --text="Runnning on battery power detected\n\nIt is recommended to connect the system to AC power during the install"
+	d --warning --no-wrap --title="AC Power Recommended" --text="Runnning on battery power detected\n\nIt is recommended to connect the system to AC power during the install"
 }
 
 checkLaptop() {
