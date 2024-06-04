@@ -27,7 +27,6 @@ checkLaptop() {
                                 log "AC power disconnected"
                                 #Display warning message
                                 displayWarning=true
-                                warningMSG
                         fi
                 fi
                 #Check Batteries for state
