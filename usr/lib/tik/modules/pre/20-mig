@@ -20,11 +20,13 @@ probe_partitions() {
 	fi
 	prun /usr/bin/mkdir -p ${mig_dir}/mnt
 	probedpart=""
-	for part in $(lsblk ${device} -p -n -r -o ID-LINK,FSTYPE|tr -s ' ' ":"|grep ":${filesystem_type}"|cut -d: -f1); do
-	    prun /usr/bin/mount ${mountops} /dev/disk/by-id/${part} ${mig_dir}/mnt
+	for part in $(lsblk ${device} -p -n -r -o ID-LINK,FSTYPE|tr -s ' ' ";"|grep ";${filesystem_type}"|cut -d\; -f1); do
+		# Fallback to unix device in order to fix issue with USB devices
+	    prun /usr/bin/mount ${mountops} "$(/usr/bin/readlink -f "/dev/disk/by-id/${part}")" "${mig_dir}/mnt"
 	    # Check if ${filematch} exists
 	    if [ -f ${mig_dir}/mnt/${filematch} ]; then
-	        probedpart=/dev/disk/by-id/${part}
+			# Fallback to unix device in order to fix issue USB devices
+	        probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
 	        log "[probe_partitions] /dev/disk/by-id/${part} found"
 	        if grep -q 'PRETTY_NAME="openSUSE MicroOS"' ${mig_dir}/mnt/${filematch} && [ -f ${mig_dir}/mnt/usr/bin/gnome-shell ]; then
         		# Found legacy Aeon, activate easter egg
@@ -76,7 +78,7 @@ if [ -z "${skipbackup}" ]; then
   # some users might have nevertheless enabled encryption anyway.
   # Search for existing crypto_LUKS partitions and, if found, prompt the user
   # to unlock those so that the migration module can find existing data.
-  for encrypted_partition in $(lsblk ${TIK_INSTALL_DEVICE} -p -n -r -o ID-LINK,FSTYPE|tr -s ' ' ":"|grep ":crypto_LUKS"|cut -d: -f1); do
+  for encrypted_partition in $(lsblk ${TIK_INSTALL_DEVICE} -p -n -r -o ID-LINK,FSTYPE|tr -s ' ' ";"|grep ";crypto_LUKS"|cut -d\; -f1); do
       if [ -e /dev/mapper/crypt_${encrypted_partition} ]; then
           # Already opened for some reason... do not prompt for the passphrase
           # but ensure we will clean up afterwards

@@ -95,6 +95,8 @@ get_disk() {
     local part_info
     local part_fs
     local blk_opts_part_info="${blk_opts_plus_label},FSTYPE"
+    local usb_match_1="usb"
+    local usb_match_2=":0"
 
     tik_install_disk_part=$(
         eval lsblk "${blk_opts_plus_label}" | \
@@ -145,6 +147,10 @@ get_disk() {
         disk_device_by_id=$(
             get_persistent_device_from_unix_node "${disk_device}" "${disk_id}"
         )
+        if [[ ( "${TIK_ALLOW_USB_INSTALL_DEVICES}" -ne 1 ) && ( "{$disk_device_by_id}" == *"${usb_match_1}"* || "{$disk_device_by_id}" == *"${usb_match_2}"* ) ]]; then
+            # ignore USB devices if TIK_ALLOW_USB_INSTALL_DEVICES not set in config
+            continue
+        fi
         if [ -n "${disk_device_by_id}" ];then
             disk_device=${disk_device_by_id}
         fi
