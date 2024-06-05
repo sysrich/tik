@@ -16,28 +16,27 @@ displayACWarningMsg() {
 checkLaptop() {
         chassis=`cat /sys/class/dmi/id/chassis_type`
         #Test for respectively Handheld, Notebook, Laptop, and Portable
-        if [[ "$chassis" =~ ^(8|9|10|11)$ ]]; then
-                #Tested machine is confirmed mobile
-                #Check for AC power connection
-                #Check file exists first
-                if [ -f "/sys/class/power_supply/AC/online" ]; then
-                        #File exists
-                        #Show warning if detected that AC power is disconnected but don't block user from proceeding
-                        if (grep -Fxq "0" "/sys/class/power_supply/AC/online"); then
-                                log "AC power disconnected"
-                                #Display warning message
-                                givePowerRecommendation=true
-                        fi
-                fi
-                #Check Batteries for state
-                if (grep -RExq 'Discharging|Not charging' /sys/class/power_supply/BAT*); then
-                        log "Battery is not charging"
+        [[ "$chassis" =~ ^(8|9|10|11)$ ]] || return #if chassis variable does not match 8 9 10 or 11, which means it is not a mobile so exit function
+        #Tested machine is confirmed mobile
+        #Check for AC power connection
+        #Check file exists
+        if [ -f "/sys/class/power_supply/AC/online" ]; then
+                #File exists
+                #Show warning if detected that AC power is disconnected but don't block user from proceeding
+                if (grep -Fxq "0" "/sys/class/power_supply/AC/online"); then
+                        log "AC power disconnected"
                         #Display warning message
                         givePowerRecommendation=true
                 fi
-                if [ "$givePowerRecommendation" = true ]; then
-                        displayACWarningMsg
-                fi
+        fi
+        #Check Batteries for state
+        if (grep -RExq 'Discharging|Not charging' /sys/class/power_supply/BAT*); then
+                log "Battery is not charging"
+                #Display warning message
+                givePowerRecommendation=true
+        fi
+        if [ "$givePowerRecommendation" = true ]; then
+                displayACWarningMsg
         fi
 }
 
