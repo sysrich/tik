@@ -16,7 +16,8 @@ displayACWarningMsg() {
 checkLaptop() {
         chassis=`cat /sys/class/dmi/id/chassis_type`
         #Test for respectively Handheld, Notebook, Laptop, and Portable
-        [[ "$chassis" =~ ^(8|9|10|11)$ ]] || return #if chassis variable does not match 8 9 10 or 11, which means it is not a mobile so exit function
+        #if chassis variable does not match 8 9 10 or 11, which means it is not a mobile so exit function
+        [[ "$chassis" =~ ^(8|9|10|11)$ ]] || return 
         #Tested machine is confirmed mobile
         #Check for AC power connection
         #Check file exists
