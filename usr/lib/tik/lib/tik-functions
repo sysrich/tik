@@ -132,6 +132,9 @@ get_disk() {
                 part_info="${part_info}unknown(${part_size})"
             fi
         done
+        if [[ ${part_count} -eq 0 ]]; then
+            part_info="none"
+        fi
         if [[ "${tik_install_disk_part}" == "${disk_device}"* ]]; then
             # ignore install source device
             continue
