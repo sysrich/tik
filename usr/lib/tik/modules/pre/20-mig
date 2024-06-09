@@ -31,12 +31,10 @@ probe_partitions() {
         		log "Legacy Aeon Install FOUND"
 	        	legacy_aeon=1
 	        fi
-		continue
-	    else
-		continue
 	    fi
+	    prun-opt /usr/bin/umount ${mig_dir}/mnt
 	 done
-	 prun-opt /usr/bin/umount ${mig_dir}/mnt
+
 	 prun /usr/bin/rmdir ${mig_dir}/mnt
 }
 
