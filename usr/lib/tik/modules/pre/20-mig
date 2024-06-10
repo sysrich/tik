@@ -31,12 +31,10 @@ probe_partitions() {
         		log "Legacy Aeon Install FOUND"
 	        	legacy_aeon=1
 	        fi
-		continue
-	    else
-		continue
 	    fi
+	    prun-opt /usr/bin/umount ${mig_dir}/mnt
 	 done
-	 prun-opt /usr/bin/umount ${mig_dir}/mnt
+
 	 prun /usr/bin/rmdir ${mig_dir}/mnt
 }
 
@@ -88,6 +86,13 @@ if [ -z "${skipbackup}" ]; then
                   echo -n "${passphrase}" | prun /usr/sbin/cryptsetup luksOpen /dev/disk/by-id/${encrypted_partition} crypt_${encrypted_partition}
                   if [ "${?}" -eq 0 ]; then
                       crypt_opened="${crypt_opened} crypt_${encrypted_partition}"
+
+                      # Wait for the mapped device to appear
+                      wait_count=0
+                      while [ ! -e /dev/mapper/crypt_${encrypted_partition} ] && [ ${wait_count} -lt 5 ]; do
+                          sleep 1
+                          wait_count=$((wait_count + 1))
+                      done
                       break
                   fi
               fi
@@ -186,7 +191,14 @@ if [ -z "${skipbackup}" ]; then
   if [ -n "${crypt_opened}" ]; then
       for mapped_partition in ${crypt_opened}; do
           if [ -e /dev/mapper/crypt_${encrypted_partition} ]; then
-              prun /usr/sbin/cryptsetup luksClose /dev/mapper/${mapped_partition}
+              # We are going to replace the encrypted partition anyway, so if
+              # we're unable to gracefully close the device after 5 seconds,
+              # just give up (hence the prun-opt usage)
+              wait_count=0
+              while ! prun-opt /usr/sbin/cryptsetup luksClose /dev/mapper/${mapped_partition} && [ ${wait_count} -lt 5 ]; do
+                  sleep 1
+                  wait_count=$((wait_count + 1))
+              done
           fi
       done
   fi
