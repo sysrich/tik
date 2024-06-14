@@ -17,7 +17,7 @@ checkLaptop() {
         #if chassis variable matches 8 9 10 or 11 function continues else it proceeds to test AC power and Battery
         [[ "$chassis" =~ ^(8|9|10|11)$ ]] || return 
         #Tested machine is confirmed mobile
-		givePowerRecommendation=false
+        givePowerRecommendation=false
         #Only check for AC and Battery power connections with upower
         updevices=`/usr/bin/upower -e|grep -E 'AC|BAT'`
         for pdev in $updevices; do
