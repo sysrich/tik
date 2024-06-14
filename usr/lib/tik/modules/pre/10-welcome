@@ -3,34 +3,43 @@
 # SPDX-FileCopyrightText: Copyright 2024 Richard Brown
 # SPDX-FileCopyrightText: Copyright 2024 Raymond Yip
 
+givePowerRecommendation=false
+
 proceedInstall() {
-	d --info --ok-label="Install Now" --no-wrap --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME}</big>\n\nPlease press <b>Install Now</b> to continue"
+    d --info --ok-label="Install Now" --no-wrap --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME}</big>\n\nPlease press <b>Install Now</b> to continue"
 }
 
-warningMSG() {
-	d --warning --no-wrap --title="AC Power Required" --text="Please connect the AC power adapter to your machine to continue" 
+displayACWarningMsg() {
+    d --warning --no-wrap --title="AC Power Recommended" --text="Runnning on battery power detected\n\nIt is recommended to connect the system to AC power during the install"
 }
 
 checkLaptop() {
-	chassis=`cat /sys/class/dmi/id/chassis_type`
-	#Test for respectively Handheld, Notebook, Laptop, and Portable
-	if [ $chassis = "11" ] || [ $chassis = "10" ] || [ $chassis = "9" ] || [ $chassis = "8" ]; then
-		#Tested machine is confirmed mobile
-		#Check for AC power connection
-		#Check file exists first
-		if [ -f "/sys/class/power_supply/AC/online" ]; then
-			#File exists
-			#While the AC power cable is still disconnected
-			while (grep -Fxq "0" "/sys/class/power_supply/AC/online"); do
-				log "AC power disconnected"
-				#Display warning message
-				warningMSG
-			done
-		fi
-	fi
+        chassis=`cat /sys/class/dmi/id/chassis_type`
+        #Test for respectively Handheld, Notebook, Laptop, and Portable
+        #if chassis variable matches 8 9 10 or 11 function continues else it proceeds to test AC power and Battery
+        [[ "$chassis" =~ ^(8|9|10|11)$ ]] || return 
+        #Tested machine is confirmed mobile
+        #Check for AC power connection
+        #Check file exists
+        if [ -f "/sys/class/power_supply/AC/online" ]; then
+                #File exists
+                #Show warning if detected that AC power is disconnected but don't block user from proceeding
+                if (grep -Fxq "0" "/sys/class/power_supply/AC/online"); then
+                        log "AC power disconnected"
+                        #Display warning message
+                        givePowerRecommendation=true
+                fi
+        fi
+        #Check Batteries for state
+        if (grep -rExq 'Discharging|Not charging' /sys/class/power_supply/BAT*/status); then
+                log "Battery is not charging"
+                #Display warning message
+                givePowerRecommendation=true
+        fi
+        if [ "$givePowerRecommendation" = true ]; then
+                displayACWarningMsg
+        fi
 }
 
 proceedInstall
 checkLaptop
-
-
