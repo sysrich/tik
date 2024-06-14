@@ -210,7 +210,7 @@ get_disk() {
             fi
         else
             # manually select from storage list
-            d --list --column=Disk --column=Size --column=Partitions --column=Filesystems --width=1000 --height=340 --title="Select A Disk" --text="Select the disk to install the operating system to. <b>Make sure any important documents and files have been backed up.</b>\n" ${list_items}
+            d --list --column=Disk --column=Size --column=Partitions --column=Filesystems --width=1050 --height=340 --title="Select A Disk" --text="Select the disk to install the operating system to. <b>Make sure any important documents and files have been backed up.</b>\n" ${list_items}
             # Add back full path to it
             TIK_INSTALL_DEVICE="/dev/disk/${disk_id}/${result}"
 
