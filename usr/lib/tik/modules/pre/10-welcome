@@ -19,26 +19,21 @@ checkLaptop() {
         #if chassis variable matches 8 9 10 or 11 function continues else it proceeds to test AC power and Battery
         [[ "$chassis" =~ ^(8|9|10|11)$ ]] || return 
         #Tested machine is confirmed mobile
-        #Check for AC power connection
-        #Check file exists
-        if [ -f "/sys/class/power_supply/AC/online" ]; then
-                #File exists
-                #Show warning if detected that AC power is disconnected but don't block user from proceeding
-                if (grep -Fxq "0" "/sys/class/power_supply/AC/online"); then
-                        log "AC power disconnected"
-                        #Display warning message
-                        givePowerRecommendation=true
-                fi
-        fi
-        #Check Batteries for state
-        if (grep -rExq 'Discharging|Not charging' /sys/class/power_supply/BAT*/status); then
-                log "Battery is not charging"
-                #Display warning message
-                givePowerRecommendation=true
-        fi
-        if [ "$givePowerRecommendation" = true ]; then
-                displayACWarningMsg
-        fi
+        #Only check for AC and Battery power connections with upower
+		updevices=`/usr/bin/upower -e|grep -E 'AC|BAT'`
+		for pdev in $updevices; do
+			#Get detailed info for each AC and BAT device in upower
+			upinfo=`/usr/bin/upower -i $pdev|grep -E 'online|state'`
+			#Check for discharging state or AC power offline which is equal to no state
+			if [[ "$upinfo" =~ (discharging|no) ]]; then
+				log "Battery is not charging"
+				#Give power recommendation only once, so set this to true
+				givePowerRecommendation=true
+			fi
+		done
+		if [ "$givePowerRecommendation" = true ]; then
+			displayACWarningMsg
+		fi
 }
 
 proceedInstall
