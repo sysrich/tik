@@ -3,8 +3,6 @@
 # SPDX-FileCopyrightText: Copyright 2024 Richard Brown
 # SPDX-FileCopyrightText: Copyright 2024 Raymond Yip
 
-givePowerRecommendation=false
-
 proceedInstall() {
     d --info --ok-label="Install Now" --no-wrap --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME}</big>\n\nPlease press <b>Install Now</b> to continue"
 }
@@ -19,6 +17,7 @@ checkLaptop() {
         #if chassis variable matches 8 9 10 or 11 function continues else it proceeds to test AC power and Battery
         [[ "$chassis" =~ ^(8|9|10|11)$ ]] || return 
         #Tested machine is confirmed mobile
+		givePowerRecommendation=false
         #Only check for AC and Battery power connections with upower
         updevices=`/usr/bin/upower -e|grep -E 'AC|BAT'`
         for pdev in $updevices; do
