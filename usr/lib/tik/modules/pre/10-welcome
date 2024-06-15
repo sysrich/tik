@@ -30,7 +30,17 @@ checkLaptop() {
 	fi
 }
 
+verify_efi() {
+	# Verify that the system was booted with EFI, exit with error if not
+	if [ ! -d /sys/firmware/efi ]; then
+		# System was not booted with EFI
+		local error_msg="Aeon requires EFI mode.\nEFI is not present on this system. You might check if EFI can be enabled in the BIOS settings."
+		error "${error_msg}"
+	fi
+}
+
 proceedInstall
+verify_efi
 checkLaptop
 
 
