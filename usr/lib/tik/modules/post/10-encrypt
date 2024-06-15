@@ -51,8 +51,9 @@ encrypt_disk() {
 	done
 	prun /usr/bin/chroot ${mig_dir}/mnt <<EOT
 sdbootutil mkinitrd
+umount /etc
 EOT
-	for i in proc dev sys run tmp boot/efi etc var .snapshots; do
+	for i in proc dev sys run tmp 'boot/efi' etc var '.snapshots'; do
 		prun /usr/bin/umount "${mig_dir}/mnt/$i"
 	done
 	prun /usr/bin/umount ${mig_dir}/mnt
