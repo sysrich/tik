@@ -31,7 +31,7 @@ encrypt_disk() {
     	prun /usr/bin/umount ${mig_dir}/mnt
 	prun /usr/sbin/cryptsetup reencrypt --force-password --encrypt --reduce-device-size 32m ${probedpart} cr_root <<<"$key"
 	echo '{"type":"systemd-recovery","keyslots":["0"]}' | prun /usr/sbin/cryptsetup token import "${probedpart}"
-	prum /usr/sbin/btrfs rescue fix-device-size /dev/mapper/cr_root
+	prun /usr/sbin/btrfs rescue fix-device-size /dev/mapper/cr_root
 	prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/cr_root ${mig_dir}/mnt
 	etcmountcmd=$(cat ${mig_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${mig_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${mig_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
     	eval prun "$etcmountcmd"
