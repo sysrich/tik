@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright 2024 SUSE LLC
+# SPDX-FileCopyrightText: Copyright 2024 Richard Brown
+
+generate_recoveryKey() {
+	modhex=('c' 'b' 'd' 'e' 'f' 'g' 'h' 'i' 'j' 'k' 'l' 'n' 'r' 't' 'u' 'v')
+	mapfile -t raw_key < <(hexdump -v --format '1/1 "%u\n"' -n 32 /dev/random)
+	[ "${#raw_key[@]}" = 32 ]
+	key=""
+	for ((i=0;i<"${#raw_key[@]}";++i)); do
+		[ "$i" -gt 0 ] && [ "$((i%4))" -eq 0 ] && key="$key-"
+		c="${raw_key[i]}"
+		key="$key${modhex[$((c>>4))]}${modhex[$((c&15))]}"
+	done
+}
+
+display_recoveryKey() {
+	log "Displaying Recovery Key"
+	zenity --width=500 --height=500 --no-wrap --warning --title="Encryption Recovery Key" --text="A secret recovery key has been generated for your Aeon installation:\n\n    <b><big>$key</big></b>\n\nPlease save this secret recovery key at a secure location\nIt may be used to regain access to your system if the other credentials have been lost or forgotten\nThe recovery key can be used in place of a password whenever authentication is requested\n\nYou may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode $key -t UTF8i)</span>"
+	log "Recovery Key Dialogue Dismissed"
+}
+
+encrypt_disk() {
+	probe_partitions $TIK_INSTALL_DEVICE "btrfs" "/usr/lib/os-release"
+	if [ -z "${probedpart}" ]; then
+        	error "ENCRYPTION FAILED: New Installation NOT FOUND"
+	fi
+	prun /usr/bin/mkdir ${mig_dir}/mnt
+    	prun /usr/bin/mount -o compress=zstd:1 ${probedpart} ${mig_dir}/mnt
+    	prun /usr/bin/systemd-repart --pretty 0 --root ${mig_dir}/mnt --dry-run=0 ${probedpart}
+    	prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var ${probedpart} ${mig_dir}/mnt/var
+    	prun /lib/systemd/systemd-growfs ${mig_dir}/mnt/var
+    	prun /usr/bin/umount ${mig_dir}/mnt/var
+    	prun /usr/sbin/btrfs filesystem resize -32m /mnt
+    	prun /usr/bin/umount ${mig_dir}/mnt
+	prun /usr/sbin/cryptsetup reencrypt --force-password --encrypt --reduce-device-size 32m ${probedpart} cr_root <<<"$key"
+	echo '{"type":"systemd-recovery","keyslots":["0"]}' | prun /usr/sbin/cryptsetup token import "${probedpart}"
+	prun /usr/sbin/btrfs rescue fix-device-size /dev/mapper/cr_root
+	prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/cr_root ${mig_dir}/mnt
+	prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/cr_root ${mig_dir}/mnt/var
+	etcmountcmd=$(cat ${mig_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${mig_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${mig_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
+    	eval prun "$etcmountcmd"
+	echo "cr_root ${probedpart} none x-initrd.attach" | prun tee ${mig_dir}/mnt/etc/crypttab
+	probe_partitions $TIK_INSTALL_DEVICE "vfat" "/EFI/systemd/shim.efi"
+	prun /usr/bin/mount ${probedpart} ${mig_dir}/mnt/boot/efi
+	prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/cr_root ${mig_dir}/mnt/.snapshots
+	prun /usr/bin/mount -t tmpfs -o size=10m tmpfs "${mig_dir}/mnt/run"
+	prun /usr/bin/mount -t tmpfs -o size=10m tmpfs "${mig_dir}/mnt/tmp"
+	for i in proc dev sys; do
+		prun /usr/bin/mount --bind "/$i" "${mig_dir}/mnt/$i"
+	done
+	prun /usr/bin/chroot ${mig_dir}/mnt <<EOT
+sdbootutil mkinitrd
+umount /etc
+EOT
+	for i in proc dev sys run tmp 'boot/efi' etc var '.snapshots'; do
+		prun /usr/bin/umount "${mig_dir}/mnt/$i"
+	done
+	prun /usr/bin/umount ${mig_dir}/mnt
+	prun /usr/bin/rmdir ${mig_dir}/mnt
+}
+
+generate_recoveryKey
+display_recoveryKey
+encrypt_disk
