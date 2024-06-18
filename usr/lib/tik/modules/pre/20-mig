@@ -69,6 +69,8 @@ if [ ! -z "$(ls -A ${mig_dir})" ]; then
       prun-opt /usr/bin/rmdir ${mig_dir}/bluetooth
       prun-opt /usr/bin/rm ${mig_dir}/openvpn/*
       prun-opt /usr/bin/rmdir ${mig_dir}/openvpn
+      prun-opt /usr/bin/rm -R ${mig_dir}/fprint/*
+      prun-opt /usr/bin/rmdir ${mig_dir}/fprint
       prun-opt /usr/bin/rmdir ${mig_dir}/mnt
   fi
 fi
@@ -187,6 +189,7 @@ if [ -z "${skipbackup}" ]; then
       	prun-opt /usr/bin/chmod 744 ${mig_dir}/users
       	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/AccountsService/icons ${mig_dir}/icons
       	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/bluetooth ${mig_dir}/bluetooth
+      	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/fprint ${mig_dir}/fprint
       	prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/openvpn ${mig_dir}/openvpn
       	prun-opt /usr/bin/umount ${mig_dir}/mnt/etc
       	prun /usr/bin/umount ${mig_dir}/mnt/var
