@@ -3,75 +3,75 @@
 # SPDX-FileCopyrightText: Copyright 2023-2024 Richard Brown
 
 log(){
-	echo "[${tik_module}][$(date +"%Y%m%d-%T")][LOG] $*" 1>&2
+    echo "[${tik_module}][$(date +"%Y%m%d-%T")][LOG] $*" 1>&2
 }
 
 warn() {
-	echo "[${tik_module}][$(date +"%Y%m%d-%T")][WARN] $*" 1>&2
-	d --warning --text="$*"
+    echo "[${tik_module}][$(date +"%Y%m%d-%T")][WARN] $*" 1>&2
+    d --warning --text="$*"
 }
 
 error() {
-	echo "[${tik_module}][$(date +"%Y%m%d-%T")][ERROR] $*" 1>&2
-	d --error --text "$*"
-	exit 1
+    echo "[${tik_module}][$(date +"%Y%m%d-%T")][ERROR] $*" 1>&2
+    d --error --text "$*"
+    exit 1
 }
 
 d(){
-	while true
-	do
-		retval=0
-		result="$(zenity "$@")" || retval=$?
-		log "[zenity][${retval}][${result}] $@"
-		case $retval in
-		  0)
-			return 0
-			;;
-		  1|255)
-		    zenity --question --text="Do you really want to quit?" && exit 1
-			;;
-		esac
-	done
+    while true
+    do
+        retval=0
+        result="$(zenity "$@")" || retval=$?
+        log "[zenity][${retval}][${result}] $@"
+        case $retval in
+            0)
+                return 0
+            ;;
+            1|255)
+                zenity --question --text="Do you really want to quit?" && exit 1
+            ;;
+        esac
+    done
 }
 
 # variant of privileged run (prun) function that doesn't require the pkexec call to return 0
 prun-opt() {
-	if [ "${debug}" == "1" ]; then
-		log "[pkexec-noexec] $@"
-	else
-		retval=0
-		pkexec "$@"
-		retval=$?
-		log "[pkexec][${retval}] $@"
-	fi
+    if [ "${debug}" == "1" ]; then
+        log "[pkexec-noexec] $@"
+    else
+        retval=0
+        pkexec "$@"
+        retval=$?
+        log "[pkexec][${retval}] $@"
+    fi
 }
 
 # Most commonly used prun function, which requires the called command to work
 prun() {
-	prun-opt "$@"
-	if [ "${retval}" != "0" ]; then
-		error "Command <tt>$@</tt> FAILED"
-	fi
+    prun-opt "$@"
+    if [ "${retval}" != "0" ]; then
+        error "Command <tt>$@</tt> FAILED"
+    fi
 }
 
 get_persistent_device_from_unix_node() {
-	local unix_device=$1
-	local schema=$2
-	local node
-	local persistent_name
-	node=$(basename "${unix_device}")
-	for persistent_name in /dev/disk/"${schema}"/*; do
-	if [ "$(basename "$(readlink "${persistent_name}")")" = "${node}" ];then
-	    if [[ ${persistent_name} =~ ^/dev/disk/"${schema}"/nvme-eui ]]; then
-		# Filter out nvme-eui nodes as they are not descriptive to the user
-		continue
-	    fi
-	    echo "${persistent_name}"
-	    return
-	fi
-	done
-	warn "Could not find <tt>${schema}</tt> representation of <tt>${node}</tt>. Using original device <tt>${unix_device}</tt>"
-	echo "${unix_device}"
+    local unix_device=$1
+    local schema=$2
+    local node
+    local persistent_name
+    node=$(basename "${unix_device}")
+    for persistent_name in /dev/disk/"${schema}"/*; do
+        if [ "$(basename "$(readlink "${persistent_name}")")" = "${node}" ];then
+            if [[ ${persistent_name} =~ ^/dev/disk/"${schema}"/nvme-eui ]]; then
+                # Filter out nvme-eui nodes as they are not descriptive to the user
+                continue
+            fi
+            echo "${persistent_name}"
+            return
+        fi
+    done
+    warn "Could not find <tt>${schema}</tt> representation of <tt>${node}</tt>. Using original device <tt>${unix_device}</tt>"
+    echo "${unix_device}"
 }
 
 get_disk() {
@@ -300,17 +300,17 @@ dump_image() {
 }
 
 set_boot_target() {
-	if [ "${debug}" == "1" ]; then
-		log "[debug] Not setting EFI boot target"
-	else
-		# Cleanup any existing openSUSE boot entries
-		prun-opt /usr/sbin/efibootmgr -B -L "openSUSE Boot Manager"
-		prun /usr/sbin/efibootmgr -O
-		# Currently assuming Aeon-like partition layout and shim name. This function will need extra intelligence to probe partitions for other image layouts
-		prun /usr/sbin/efibootmgr -c -L "openSUSE Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p 2
-		# Log to show the resulting eficonfig
-		log "[efibootmgr] $(prun /usr/sbin/efibootmgr)"
-	fi
+    if [ "${debug}" == "1" ]; then
+        log "[debug] Not setting EFI boot target"
+    else
+        # Cleanup any existing openSUSE boot entries
+        prun-opt /usr/sbin/efibootmgr -B -L "openSUSE Boot Manager"
+        prun /usr/sbin/efibootmgr -O
+        # Currently assuming Aeon-like partition layout and shim name. This function will need extra intelligence to probe partitions for other image layouts
+        prun /usr/sbin/efibootmgr -c -L "openSUSE Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p 2
+        # Log to show the resulting eficonfig
+        log "[efibootmgr] $(prun /usr/sbin/efibootmgr)"
+    fi
 }
 
 load_modules() {
@@ -323,10 +323,10 @@ fi
 if [ -n "$(ls -A $module_dir)" ]; then
 for f in $module_dir/*
     do
-    	tik_module="$f"
-    	log "[START] $module_dir/$f"
-    	. $f
-    	log "[STOP] $module_dir/$f"
+        tik_module="$f"
+        log "[START] $module_dir/$f"
+        . $f
+        log "[STOP] $module_dir/$f"
     done
 fi
 tik_module="tik"
