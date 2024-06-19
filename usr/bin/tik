@@ -21,7 +21,7 @@ log "[START] $0"
 
 # Check for debug mode
 if [[ $1 == "--debug" ]]; then
-	debug=1
+    debug=1
 fi
 
 # Read configuration files, /usr first, then /etc
@@ -30,22 +30,22 @@ fi
 
 # Check essential paths exist
 if [ ! -d "${TIK_IMG_DIR}" ]; then
-	error "${TIK_IMG_DIR} does not exist"
+    error "${TIK_IMG_DIR} does not exist"
 fi
 
 cleanup() {
-	retval=$?
-	log "[STOP][${retval}] $0"
-	if [ "${debug}" == "1" ]; then
-		zenity --timeout 5 --info --no-wrap --text="<b>Test Succeeded:</b>\n\nHave a nice day!"
-	elif [ "${retval}" == "0" ]; then
-		zenity --timeout 5 --info --no-wrap --title="Installation Complete!" --text="${TIK_OS_NAME} has been installed.\n\n<b>System is rebooting</b>"
-		systemctl reboot
-	else
-		zenity --error --no-wrap --title="Installation Failed" --text="Please file a bug report at <tt>${TIK_BUG_URL}</tt>\n\nPlease include the <tt>tik.log</tt> file\nIt can be found on the IGNITION partition on this USB Stick\n\n<b>System is shutting down</b>"
-		cp -a ${tik_log} /ignition
-		systemctl poweroff
-	fi
+    retval=$?
+    log "[STOP][${retval}] $0"
+    if [ "${debug}" == "1" ]; then
+        zenity --timeout 5 --info --no-wrap --text="<b>Test Succeeded:</b>\n\nHave a nice day!"
+    elif [ "${retval}" == "0" ]; then
+        zenity --timeout 5 --info --no-wrap --title="Installation Complete!" --text="${TIK_OS_NAME} has been installed.\n\n<b>System is rebooting</b>"
+        systemctl reboot
+    else
+        zenity --error --no-wrap --title="Installation Failed" --text="Please file a bug report at <tt>${TIK_BUG_URL}</tt>\n\nPlease include the <tt>tik.log</tt> file\nIt can be found on the IGNITION partition on this USB Stick\n\n<b>System is shutting down</b>"
+        cp -a ${tik_log} /ignition
+        systemctl poweroff
+    fi
 }
 trap cleanup EXIT
 
