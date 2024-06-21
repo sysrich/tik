@@ -2,6 +2,11 @@
 # SPDX-FileCopyrightText: Copyright 2024 SUSE LLC
 # SPDX-FileCopyrightText: Copyright 2024 Richard Brown
 
+crypt_dir=/var/lib/tik/crypt
+if [ ! -d ${crypt_dir} ]; then
+    prun /usr/bin/mkdir -p ${crypt_dir}
+fi
+
 generate_recoveryKey() {
     modhex=('c' 'b' 'd' 'e' 'f' 'g' 'h' 'i' 'j' 'k' 'l' 'n' 'r' 't' 'u' 'v')
     mapfile -t raw_key < <(hexdump -v --format '1/1 "%u\n"' -n 32 /dev/random)
@@ -23,41 +28,58 @@ display_recoveryKey() {
 encrypt_disk() {
     probe_partitions $TIK_INSTALL_DEVICE "btrfs" "/usr/lib/os-release"
     if [ -z "${probedpart}" ]; then
-        error "ENCRYPTION FAILED: New Installation NOT FOUND"
+        error "ENCRYPTION FAILED: Aeon Installation NOT FOUND"
     fi
-    prun /usr/bin/mkdir ${mig_dir}/mnt
-        prun /usr/bin/mount -o compress=zstd:1 ${probedpart} ${mig_dir}/mnt
-        prun /usr/bin/systemd-repart --pretty 0 --root ${mig_dir}/mnt --dry-run=0 ${probedpart}
-        prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var ${probedpart} ${mig_dir}/mnt/var
-        prun /lib/systemd/systemd-growfs ${mig_dir}/mnt/var
-        prun /usr/bin/umount ${mig_dir}/mnt/var
-        prun /usr/sbin/btrfs filesystem resize -32m /mnt
-        prun /usr/bin/umount ${mig_dir}/mnt
-    prun /usr/sbin/cryptsetup reencrypt --force-password --encrypt --reduce-device-size 32m ${probedpart} cr_root <<<"$key"
-    echo '{"type":"systemd-recovery","keyslots":["0"]}' | prun /usr/sbin/cryptsetup token import "${probedpart}"
+    prun /usr/bin/mkdir ${crypt_dir}/mnt
+    prun /usr/bin/mount -o compress=zstd:1 ${probedpart} ${crypt_dir}/mnt
+    prun /usr/bin/systemd-repart --pretty 0 --root ${crypt_dir}/mnt --dry-run=0 ${probedpart}
+    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var ${probedpart} ${crypt_dir}/mnt/var
+    prun /lib/systemd/systemd-growfs ${crypt_dir}/mnt/var
+    prun /usr/bin/umount ${crypt_dir}/mnt/var
+    prun /usr/sbin/btrfs filesystem resize -32m /mnt
+    prun /usr/bin/umount ${crypt_dir}/mnt
+    prun /usr/sbin/cryptsetup reencrypt --force-password --encrypt --reduce-device-size 32m --init-only ${probedpart} cr_root <<<"$key"
+    #FIXME- can't import token on device prepared for encryption
+    #echo '{"type":"systemd-recovery","keyslots":["0"]}' | prun /usr/sbin/cryptsetup token import "${probedpart}"
     prun /usr/sbin/btrfs rescue fix-device-size /dev/mapper/cr_root
-    prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/cr_root ${mig_dir}/mnt
-    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/cr_root ${mig_dir}/mnt/var
-    etcmountcmd=$(cat ${mig_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${mig_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${mig_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
-        eval prun "$etcmountcmd"
-    echo "cr_root ${probedpart} none x-initrd.attach" | prun tee ${mig_dir}/mnt/etc/crypttab
+    prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/cr_root ${crypt_dir}/mnt
+    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/cr_root ${crypt_dir}/mnt/var
+    etcmountcmd=$(cat ${crypt_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${crypt_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${crypt_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
+    eval prun "$etcmountcmd"
+    echo "cr_root ${probedpart} none x-initrd.attach" | prun tee ${crypt_dir}/mnt/etc/crypttab
+    (cat | prun tee ${crypt_dir}/mnt/etc/systemd/system/cryptsetup-reencrypt-crroot.service) <<EOF
+[Unit]
+Description=cryptsetup-reencrypt-crroot service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/cryptsetup reencrypt --resume-only /dev/mapper/cr_root
+
+[Install]
+WantedBy=default.target
+EOF
     probe_partitions $TIK_INSTALL_DEVICE "vfat" "/EFI/systemd/shim.efi"
-    prun /usr/bin/mount ${probedpart} ${mig_dir}/mnt/boot/efi
-    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/cr_root ${mig_dir}/mnt/.snapshots
-    prun /usr/bin/mount -t tmpfs -o size=10m tmpfs "${mig_dir}/mnt/run"
-    prun /usr/bin/mount -t tmpfs -o size=10m tmpfs "${mig_dir}/mnt/tmp"
+    prun /usr/bin/mount ${probedpart} ${crypt_dir}/mnt/boot/efi
+    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/cr_root ${crypt_dir}/mnt/.snapshots
+    prun /usr/bin/mount -t tmpfs tmpfs "${crypt_dir}/mnt/run"
+    prun /usr/bin/mount -t tmpfs tmpfs "${crypt_dir}/mnt/tmp"
     for i in proc dev sys; do
-        prun /usr/bin/mount --bind "/$i" "${mig_dir}/mnt/$i"
+        prun /usr/bin/mount --bind "/$i" "${crypt_dir}/mnt/$i"
     done
-    prun /usr/bin/chroot ${mig_dir}/mnt <<EOT
+    prun /usr/bin/chroot ${crypt_dir}/mnt <<EOT
 sdbootutil mkinitrd
-umount /etc
+systemctl enable cryptsetup-reencrypt-crroot.service
 EOT
-    for i in proc dev sys run tmp 'boot/efi' etc var '.snapshots'; do
-        prun /usr/bin/umount "${mig_dir}/mnt/$i"
+    for i in proc dev sys run tmp 'boot/efi' var etc '.snapshots/1/snapshot/etc' '.snapshots'; do
+        prun-opt /usr/bin/umount "${crypt_dir}/mnt/$i"
     done
-    prun /usr/bin/umount ${mig_dir}/mnt
-    prun /usr/bin/rmdir ${mig_dir}/mnt
+    prun /usr/bin/umount ${crypt_dir}/mnt
+    wait_count=0
+    while ! prun-opt /usr/sbin/cryptsetup luksClose /dev/mapper/cr_root && [ ${wait_count} -lt 5 ]; do
+        sleep 1
+        wait_count=$((wait_count + 1))
+    done
+    prun /usr/bin/rmdir ${crypt_dir}/mnt
 }
 
 generate_recoveryKey

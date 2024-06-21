@@ -4,7 +4,29 @@
 # SPDX-FileCopyrightText: Copyright 2024 Raymond Yip
 
 proceedInstall() {
-    d --info --ok-label="Install Now" --no-wrap --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME}</big>\n\nPlease press <b>Install Now</b> to continue"
+    zenity --question --cancel-label="Advanced Tools" --ok-label="Install Now" --no-wrap --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME}</big>\n\nPlease press <b>Install Now</b> to continue"
+    toolsyn=$?
+    if [ "${toolsyn}" == 0 ]; then
+        continue
+    else
+        advancedTools
+    fi
+}
+
+advancedTools() {
+    zenity --question --cancel-label="Return to Installation" --ok-label="Encrypt existing Install" --no-wrap --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic --title="Advanced Tools" --text="Currently the only tool available is for encrypting existing Aeon Installs\n\nPlease press <b>Encrypt existing Install</b> to continue\n\nOtherwise press <b>Return to Installation</b> to return to the Aeon installer"
+    cryptyn=$?
+    if [ "${cryptyn}" == 0 ]; then
+        get_disk
+        log "[START] $tik_dir/modules/post/10-encrypt"
+        . $tik_dir/modules/post/10-encrypt
+        log "[STOP] $tik_dir/modules/post/10-encrypt"
+        set_boot_target
+        zenity --timeout 5 --info --no-wrap --title="Encryption Complete!" --text="${TIK_OS_NAME} has been Encrypted.\n\n<b>System is rebooting</b>"
+        systemctl reboot
+    else
+        proceedInstall
+    fi
 }
 
 displayACWarningMsg() {
@@ -12,27 +34,27 @@ displayACWarningMsg() {
 }
 
 checkLaptop() {
-        chassis=`cat /sys/class/dmi/id/chassis_type`
-        #Test for respectively Handheld, Notebook, Laptop, and Portable
-        #if chassis variable matches 8 9 10 or 11 function continues else it proceeds to test AC power and Battery
-        [[ "$chassis" =~ ^(8|9|10|11)$ ]] || return 
-        #Tested machine is confirmed mobile
-        givePowerRecommendation=false
-        #Only check for AC and Battery power connections with upower
-        updevices=`/usr/bin/upower -e|grep -E 'AC|BAT'`
-        for pdev in $updevices; do
-            #Get detailed info for each AC and BAT device in upower
-            upinfo=`/usr/bin/upower -i $pdev|grep -E 'online|state'`
-            #Check for discharging state or AC power offline which is equal to no state
-            if [[ "$upinfo" =~ (discharging|no) ]]; then
-                #Give power recommendation only once, so set this to true
-                givePowerRecommendation=true
-            fi
-        done
-        if [ "$givePowerRecommendation" = true ]; then
-            log "AC Power disconnected and Battery is not charging"
-            displayACWarningMsg
+    chassis=`cat /sys/class/dmi/id/chassis_type`
+    #Test for respectively Handheld, Notebook, Laptop, and Portable
+    #if chassis variable matches 8 9 10 or 11 function continues else it proceeds to test AC power and Battery
+    [[ "$chassis" =~ ^(8|9|10|11)$ ]] || return
+    #Tested machine is confirmed mobile
+    givePowerRecommendation=false
+    #Only check for AC and Battery power connections with upower
+    updevices=`/usr/bin/upower -e|grep -E 'AC|BAT'`
+    for pdev in $updevices; do
+        #Get detailed info for each AC and BAT device in upower
+        upinfo=`/usr/bin/upower -i $pdev|grep -E 'online|state'`
+        #Check for discharging state or AC power offline which is equal to no state
+        if [[ "$upinfo" =~ (discharging|no) ]]; then
+            #Give power recommendation only once, so set this to true
+            givePowerRecommendation=true
         fi
+    done
+    if [ "$givePowerRecommendation" = true ]; then
+        log "AC Power disconnected and Battery is not charging"
+        displayACWarningMsg
+    fi
 }
 
 verify_efi() {

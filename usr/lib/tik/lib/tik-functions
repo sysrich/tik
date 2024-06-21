@@ -299,6 +299,37 @@ dump_image() {
     prun /usr/bin/sync | d --progress --title="Syncing" --pulsate --auto-close --no-cancel --width=400
 }
 
+probe_partitions() {
+    local probe_dir=/var/lib/tik/probe
+    local filesystem_type=$2
+    local filematch=$3
+    local device=$1
+    local mountops
+    local part
+    if [[ "${filesystem_type}" == "btrfs" ]]; then
+        mountops="-o compress=zstd:1"
+    fi
+    prun /usr/bin/mkdir -p ${probe_dir}/mnt
+    probedpart=""
+    for part in $(lsblk ${device} -p -n -r -o ID-LINK,FSTYPE|tr -s ' ' ";"|grep ";${filesystem_type}"|cut -d\; -f1); do
+        # Fallback to unix device in order to fix issue with USB devices
+        prun /usr/bin/mount ${mountops} "$(/usr/bin/readlink -f "/dev/disk/by-id/${part}")" "${probe_dir}/mnt"
+        # Check if ${filematch} exists
+        if [ -f ${probe_dir}/mnt/${filematch} ]; then
+            # Fallback to unix device in order to fix issue USB devices
+            probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
+            log "[probe_partitions] /dev/disk/by-id/${part} found"
+            if grep -q 'PRETTY_NAME="openSUSE MicroOS"' ${probe_dir}/mnt/${filematch} && [ -f ${probe_dir}/mnt/usr/bin/gnome-shell ]; then
+                # Found legacy Aeon, activate easter egg
+                log "Legacy Aeon Install FOUND"
+                legacy_aeon=1
+            fi
+        fi
+        prun-opt /usr/bin/umount ${probe_dir}/mnt
+    done
+    prun /usr/bin/rmdir ${probe_dir}/mnt
+}
+
 set_boot_target() {
     if [ "${debug}" == "1" ]; then
         log "[debug] Not setting EFI boot target"
