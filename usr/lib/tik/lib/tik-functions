@@ -262,13 +262,21 @@ get_img() {
     local img_list
     local img_array
     # Images are assumed to be named to the following standard
-    # $ProductName.$Version.raw.xz
+    # $ProductName.$Version.raw.xz for block devices
+    # $ProductName.$Version\ for systemd-repart bundles
     # Any extraneous fields may confuse tik's detection, selection and presentation of the image to the user
-    for img_meta in $(
-        eval cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" *.raw.xz | tr '	' ":")
-    );do
+    for img_meta in $(cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" *.raw.xz | tr '	' ":"));do
         img_filename="$(echo $img_meta | cut -f1 -d:)"
         img_size="$(echo $img_meta | cut -f2 -d:)"
+        list_items="${list_items} ${img_filename} ${img_size}"
+    done
+    for img_meta in $(cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" $(ls -d */) | tr '	' ":"));do
+        img_filename="$(echo $img_meta | cut -f1 -d:)"
+        img_size="$(echo $img_meta | cut -f2 -d:)"
+        if [ ! -d $TIK_IMG_DIR/${img_filename}/repart.d ]; then
+            # ignore directories that don't contain repart.d configurations
+            continue
+        fi
         list_items="${list_items} ${img_filename} ${img_size}"
     done
     if [ -n "${TIK_INSTALL_IMAGE}" ];then
@@ -294,8 +302,7 @@ get_img() {
         log "${message}"
     fi
     if [ -z "${list_items}" ];then
-        local no_image_text="No images(s) for installation found"
-        error "${no_image_text}"
+        TIK_INSTALL_IMAGE='TIK_SELFDEPLOY'
     fi
     img_list=${list_items}
     if [ -n "${img_list}" ];then
@@ -313,7 +320,7 @@ get_img() {
             TIK_INSTALL_IMAGE="${img_array[0]}"
         else
             # manually select from storage list
-            d --list --column=Disk --column=Size --title="Select A Image" --text="Select the operating system image to install.\n" ${list_items}
+            d --list --column=Image --column=Size --title="Select A Image" --text="Select the operating system image to install.\n" ${list_items}
             TIK_INSTALL_IMAGE="$result"
         fi
     fi
