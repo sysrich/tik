@@ -8,36 +8,6 @@ if [ ! -d ${mig_dir} ]; then
     prun /usr/bin/mkdir -p ${mig_dir}
 fi
 
-probe_partitions() {
-    local filesystem_type=$2
-    local filematch=$3
-    local device=$1
-    local mountops
-    local part
-    if [[ "${filesystem_type}" == "btrfs" ]]; then
-        mountops="-o compress=zstd:1"
-    fi
-    prun /usr/bin/mkdir -p ${mig_dir}/mnt
-    probedpart=""
-    for part in $(lsblk ${device} -p -n -r -o ID-LINK,FSTYPE|tr -s ' ' ";"|grep ";${filesystem_type}"|cut -d\; -f1); do
-        # Fallback to unix device in order to fix issue with USB devices
-        prun /usr/bin/mount ${mountops} "$(/usr/bin/readlink -f "/dev/disk/by-id/${part}")" "${mig_dir}/mnt"
-        # Check if ${filematch} exists
-        if [ -f ${mig_dir}/mnt/${filematch} ]; then
-            # Fallback to unix device in order to fix issue USB devices
-            probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
-            log "[probe_partitions] /dev/disk/by-id/${part} found"
-            if grep -q 'PRETTY_NAME="openSUSE MicroOS"' ${mig_dir}/mnt/${filematch} && [ -f ${mig_dir}/mnt/usr/bin/gnome-shell ]; then
-                # Found legacy Aeon, activate easter egg
-                log "Legacy Aeon Install FOUND"
-                legacy_aeon=1
-            fi
-        fi
-        prun-opt /usr/bin/umount ${mig_dir}/mnt
-    done
-    prun /usr/bin/rmdir ${mig_dir}/mnt
-}
-
 if [ ! -z "$(ls -A ${mig_dir})" ]; then
     log "existing backup found"
     zenity --question --no-wrap --cancel-label="No, Delete Backup" --title="Existing user backup detected" --text="These users can be restored to the new installation\n\nWould you like to use this backup?"
