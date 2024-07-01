@@ -22,15 +22,54 @@ In addition to the above workflow, tik supports the following additional feature
 
 ## tik OS Images
 
-tik is designed to deploy a .raw/.img disk image, which is expected to contain
+tik is designed to deploy three types of images.
+
+- Block images
+- systemd-repart "bundles"
+- systemd-repart "self deployment"
+
+In all three cases tik should not care about the contents of the disk image, which potentially could be of any Operating System built using any toolset (eg kiwi, mkosi, etc)
+
+Features like expanding the partitions to fill the disk are expected to be handled by tools like systemd-repart on the booting of the deployed OS, not by tik (though in theory optional extensions could be written to implement this)
+
+### Block images
+
+tik can deploy a block-based disk images. These expected to be raw.xz files containing
 
 - the full partition table
 - a UEFI ESP/EFI partition
 - 1 (or more) OS partitions
 
-tik should not care about the contents of the disk image, which potentially could be of any Operating System built using any toolset (eg kiwi, mkosi, etc)
+By default these files should be located in `/usr/lib/tik/img` but can be relocated by redefining the `TIK_IMG_DIR` parameter in your tik config
 
-Features like expanding the partitions to fill the disk are expected to be handled by tools like systemd-repart on the booting of the deployed OS, not by tik (though in theory optional extensions could be written to impliment this)
+### systemd-repart "bundles"
+
+tik can also deploy images bundled with their own systemd-repart configurations. tik expects the following on disk layout for each systemd-repart "bundle":
+
+- a Directory with a unique name to describe the OS/Version being deployed. Contained within that directory:
+    - a `repart.d` Directory containing a complete [repart.d](https://www.freedesktop.org/software/systemd/man/latest/repart.d.html) partition layout for the OS being deployed
+    - 1 (or more) Directories or Block images to be used by `CopyFiles=` or `CopyBlocks=` parameters in the `repart.d` configuration to populate the contents of the defined partitions
+
+The `repart.d` configuration is then read and applied to the target storage device, being populated automatically based on the configuration.
+
+By default these files should be located in `/usr/lib/tik/img` but can be relocated by redefining the `TIK_IMG_DIR` parameter in your tik config.
+As `CopyBlocks=` and `CopyFiles=` parameters require absolute filesystem paths, any change to the `TIK_IMG_DIR` parameter will require altering your configuration to match that new location.
+
+This feature was introduced in tik v1.2
+
+### systemd-repart "self-deployment"
+
+If tik is executed without any images in the defined `TIK_IMG_DIR` it will automatically attempt "self deployment", using the currently booted tik USB stick as its 'image' for writing to the target storage device.
+This is primarily for using tik to deploy images from a functioning 'live/portable' USB installation.
+
+For this to work, tik requires
+
+- a `repart.d` configuration containing a complete [repart.d](https://www.freedesktop.org/software/systemd/man/latest/repart.d.html) partition layout for the OS being deployed. This must be located in the standard `repart.d` paths, eg `/etc/repart.d/` or `/usr/lib/repart.d`
+
+The `repart.d` configuration is then read and applied to the target storage device, being populated automatically based on the configuration.
+It is expected that the `repart.d` configuration will use `CopyBlocks=auto` to automatically map the contents from the booted tik USB stick to the equivalent new partitions on the target storage device.
+
+This feature was introduced in tik v1.2
 
 ## tik Installation Media
 
@@ -42,7 +81,7 @@ tik Installtion Media are expected to be a variant of openSUSE MicroOS, designed
 
 while the "Install OS" of the Installation Media will therefore be read-only when in use, the "Install OS" will be possible of being updated and configured to the users needs, directly on the USB stick after it's imaged
 
-More importantly, this also means that the Installation Media will have various read-write locations, including /var/lib/tik/images, the location of tiks .raw/.img files, allowing users to add their own custom variants of such images to be offered when the tik installer boots up
+More importantly, this also means that the Installation Media will have various read-write locations, including /var/lib/tik/images, the location of tiks image files, allowing users to add their own custom variants of such images to be offered when the tik installer boots up
 
 ## tik + ignition + combustion
 
