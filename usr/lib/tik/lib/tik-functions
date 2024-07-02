@@ -263,20 +263,16 @@ get_img() {
     local img_array
     # Images are assumed to be named to the following standard
     # $ProductName.$Version.raw.xz for block devices
-    # $ProductName.$Version\ for systemd-repart bundles
+    # $ProductName.$Version.raw for systemd-repart images
     # Any extraneous fields may confuse tik's detection, selection and presentation of the image to the user
     for img_meta in $(cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" *.raw.xz | tr '	' ":"));do
         img_filename="$(echo $img_meta | cut -f1 -d:)"
         img_size="$(echo $img_meta | cut -f2 -d:)"
         list_items="${list_items} ${img_filename} ${img_size}"
     done
-    for img_meta in $(cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" $(ls -d */) | tr '	' ":"));do
+    for img_meta in $(cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" *.raw | tr '	' ":"));do
         img_filename="$(echo $img_meta | cut -f1 -d:)"
         img_size="$(echo $img_meta | cut -f2 -d:)"
-        if [ ! -d $TIK_IMG_DIR/${img_filename}/repart.d ]; then
-            # ignore directories that don't contain repart.d configurations
-            continue
-        fi
         list_items="${list_items} ${img_filename} ${img_size}"
     done
     if [ -n "${TIK_INSTALL_IMAGE}" ];then
@@ -336,8 +332,8 @@ dump_image() {
         *.raw.xz)
             dump_image_dd ${image_source_files} ${image_target}
             ;;
-        */)
-            dump_image_repart_bundle ${image_source_files} ${image_target}
+        *.raw)
+            dump_image_repart_image ${image_source_files} ${image_target}
             ;;
         TIK_SELFDEPLOY)
             dump_image_repart_self ${image_target}
@@ -354,15 +350,15 @@ dump_image_dd() {
     prun /usr/bin/sync | d --progress --title="Syncing" --pulsate --auto-close --no-cancel --width=400
 }
 
-dump_image_repart_bundle() {
+dump_image_repart_image() {
     local image_source_files=$1
     local image_target=$2
-    sudo systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --root=${TIK_IMG_DIR}/${image_source_files} --definitions=${TIK_IMG_DIR}/${image_source_files}repart.d ${image_target} | d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400
+    prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --image=${TIK_IMG_DIR}/${image_source_files} --image-policy=root=unprotected ${image_target} | d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400
 }
 
 dump_image_repart_self() {
     local image_target=$1
-    sudo systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no ${image_target} | d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400
+    prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no ${image_target} | d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400
 }
 
 set_boot_target() {
