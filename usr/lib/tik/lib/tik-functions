@@ -329,12 +329,40 @@ get_img() {
 dump_image() {
     local image_source_files=$1
     local image_target=$2
-    local image_source
 
     d --question --no-wrap --title="Begin Installation?" --text="Once the installation begins the changes to the selected disk are irreversible.\n\n<b>Proceeding will fully erase the disk.</b>\n\nContinue with installation?"
 
+    case "${image_source_files}" in
+        *.raw.xz)
+            dump_image_dd ${image_source_files} ${image_target}
+            ;;
+        */)
+            dump_image_repart_bundle ${image_source_files} ${image_target}
+            ;;
+        TIK_SELFDEPLOY)
+            dump_image_repart_self ${image_target}
+            ;;
+        *)
+            error "invalid image type provided"
+    esac
+}
+
+dump_image_dd() {
+    local image_source_files=$1
+    local image_target=$2
     (xzcat ${TIK_IMG_DIR}/${image_source_files} | pv -f -F "# %b copied in %t %r" | prun /usr/bin/dd of=${image_target} bs=64k) 2>&1 | d --progress --title="Installing ${TIK_OS_NAME}" --pulsate --auto-close --no-cancel --width=400
     prun /usr/bin/sync | d --progress --title="Syncing" --pulsate --auto-close --no-cancel --width=400
+}
+
+dump_image_repart_bundle() {
+    local image_source_files=$1
+    local image_target=$2
+    sudo systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --root=${TIK_IMG_DIR}/${image_source_files} --definitions=${TIK_IMG_DIR}/${image_source_files}repart.d ${image_target} | d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400
+}
+
+dump_image_repart_self() {
+    local image_target=$1
+    sudo systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no ${image_target} | d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400
 }
 
 set_boot_target() {
