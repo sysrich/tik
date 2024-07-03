@@ -25,44 +25,44 @@ if [ "${migrate}" == 1 ]; then
     fi
 
     prun /usr/bin/mkdir ${mig_dir}/mnt
-        prun /usr/bin/mount -o compress=zstd:1 ${probedpart} ${mig_dir}/mnt
-        prun /usr/bin/systemd-repart --pretty 0 --root ${mig_dir}/mnt --dry-run=0 ${probedpart}
-        prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var ${probedpart} ${mig_dir}/mnt/var
-        prun /lib/systemd/systemd-growfs ${mig_dir}/mnt/var
-        etcmountcmd=$(cat ${mig_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${mig_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${mig_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
-        eval prun "$etcmountcmd"
-        prun /usr/bin/cat ${mig_dir}/passwd.out | prun tee -a ${mig_dir}/mnt/etc/passwd
-        prun /usr/bin/cat ${mig_dir}/group.out | prun tee -a ${mig_dir}/mnt/etc/group
-        prun /usr/bin/cat ${mig_dir}/shadow.out | prun tee -a ${mig_dir}/mnt/etc/shadow
-        prun /usr/bin/sed -i "/^wheel:/ s/$/$(head -n 1 ${mig_dir}/passwd.out | awk -F'[/:]' '{print $1}')/" ${mig_dir}/mnt/etc/group
-        prun /usr/bin/cp -a ${mig_dir}/subuid ${mig_dir}/mnt/etc/subuid
-        prun /usr/bin/cp -a ${mig_dir}/subgid ${mig_dir}/mnt/etc/subgid
-        # It's not guaranteed that the system will have existing network configs, localtime or AccountsService
-        prun-opt /usr/bin/cp -a ${mig_dir}/system-connections/* ${mig_dir}/mnt/etc/NetworkManager/system-connections
-        prun-opt /usr/bin/cp -a ${mig_dir}/localtime ${mig_dir}/mnt/etc/localtime
-        prun-opt /usr/bin/cp -a ${mig_dir}/users/* ${mig_dir}/mnt/var/lib/AccountsService/users
-        prun-opt /usr/bin/cp -a ${mig_dir}/icons/* ${mig_dir}/mnt/var/lib/AccountsService/icons
-        prun-opt /usr/bin/cp -a ${mig_dir}/bluetooth/* ${mig_dir}/mnt/var/lib/bluetooth
-        prun-opt /usr/bin/cp -a ${mig_dir}/fprint/* ${mig_dir}/mnt/var/lib/fprint
-        prun-opt /usr/bin/cp -a ${mig_dir}/openvpn/* ${mig_dir}/mnt/etc/openvpn
-        prun /usr/bin/umount ${mig_dir}/mnt/etc
-        prun /usr/bin/umount ${mig_dir}/mnt/var
-        prun /usr/bin/umount ${mig_dir}/mnt
-        prun /usr/bin/mount -o compress=zstd:1,subvol=/@ ${probedpart} ${mig_dir}/mnt
-        prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/home
-        (prun /usr/sbin/btrfs send ${mig_dir}/${snap_dir} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/mnt) 2>&1 | d --progress --title="Restoring /home" --pulsate --auto-close --no-cancel --width=400
-        prun /usr/bin/mv ${mig_dir}/mnt/${snap_dir} ${mig_dir}/mnt/home
-        prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/mnt/home ro false
-        for subsubvol in $(prun-opt /usr/sbin/btrfs subvolume list -o ${mig_dir}/${snap_dir} --sort=path | rev | cut -f1 -d' ' | rev | sed 's/^@//'); do
-            subsubvolname=$(basename $subsubvol)
-            subsubdirname=$(dirname $subsubvol | awk -F "${mig_dir}/${snap_dir}" '{print $2}')
-            (prun /usr/sbin/btrfs send ${subsubvol} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/mnt/home/${subsubdirname} ) 2>&1 | d --progress --title="Restoring containers" --pulsate --auto-close --no-cancel --width=400
-            prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/mnt/home/${subsubdirname}/${subsubvolname} ro false
-            prun-opt /usr/bin/sed -i 's/driver = "overlay"/driver = "btrfs"/g' ${mig_dir}/mnt/etc/containers/storage.conf
-        done
-        for userhome in ${mig_dir}/mnt/home/*/; do
-            writemigdesktop $userhome
-        done
-        prun /usr/bin/umount ${mig_dir}/mnt
-        prun /usr/bin/rmdir ${mig_dir}/mnt
+    prun /usr/bin/mount -o compress=zstd:1 ${probedpart} ${mig_dir}/mnt
+    prun /usr/bin/systemd-repart --pretty 0 --root ${mig_dir}/mnt --dry-run=0 ${probedpart}
+    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var ${probedpart} ${mig_dir}/mnt/var
+    prun /lib/systemd/systemd-growfs ${mig_dir}/mnt/var
+    etcmountcmd=$(cat ${mig_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${mig_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${mig_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
+    eval prun "$etcmountcmd"
+    prun /usr/bin/cat ${mig_dir}/passwd.out | prun tee -a ${mig_dir}/mnt/etc/passwd
+    prun /usr/bin/cat ${mig_dir}/group.out | prun tee -a ${mig_dir}/mnt/etc/group
+    prun /usr/bin/cat ${mig_dir}/shadow.out | prun tee -a ${mig_dir}/mnt/etc/shadow
+    prun /usr/bin/sed -i "/^wheel:/ s/$/$(head -n 1 ${mig_dir}/passwd.out | awk -F'[/:]' '{print $1}')/" ${mig_dir}/mnt/etc/group
+    prun /usr/bin/cp -a ${mig_dir}/subuid ${mig_dir}/mnt/etc/subuid
+    prun /usr/bin/cp -a ${mig_dir}/subgid ${mig_dir}/mnt/etc/subgid
+    # It's not guaranteed that the system will have existing network configs, localtime or AccountsService
+    prun-opt /usr/bin/cp -a ${mig_dir}/system-connections/* ${mig_dir}/mnt/etc/NetworkManager/system-connections
+    prun-opt /usr/bin/cp -a ${mig_dir}/localtime ${mig_dir}/mnt/etc/localtime
+    prun-opt /usr/bin/cp -a ${mig_dir}/users/* ${mig_dir}/mnt/var/lib/AccountsService/users
+    prun-opt /usr/bin/cp -a ${mig_dir}/icons/* ${mig_dir}/mnt/var/lib/AccountsService/icons
+    prun-opt /usr/bin/cp -a ${mig_dir}/bluetooth/* ${mig_dir}/mnt/var/lib/bluetooth
+    prun-opt /usr/bin/cp -a ${mig_dir}/fprint/* ${mig_dir}/mnt/var/lib/fprint
+    prun-opt /usr/bin/cp -a ${mig_dir}/openvpn/* ${mig_dir}/mnt/etc/openvpn
+    prun /usr/bin/umount ${mig_dir}/mnt/etc
+    prun /usr/bin/umount ${mig_dir}/mnt/var
+    prun /usr/bin/umount ${mig_dir}/mnt
+    prun /usr/bin/mount -o compress=zstd:1,subvol=/@ ${probedpart} ${mig_dir}/mnt
+    prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/home
+    (prun /usr/sbin/btrfs send ${mig_dir}/${snap_dir} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/mnt) 2>&1 | d --progress --title="Restoring /home" --pulsate --auto-close --no-cancel --width=400
+    prun /usr/bin/mv ${mig_dir}/mnt/${snap_dir} ${mig_dir}/mnt/home
+    prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/mnt/home ro false
+    for subsubvol in $(prun-opt /usr/sbin/btrfs subvolume list -o ${mig_dir}/${snap_dir} --sort=path | rev | cut -f1 -d' ' | rev | sed 's/^@//'); do
+        subsubvolname=$(basename $subsubvol)
+        subsubdirname=$(dirname $subsubvol | awk -F "${mig_dir}/${snap_dir}" '{print $2}')
+        (prun /usr/sbin/btrfs send ${subsubvol} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/mnt/home/${subsubdirname} ) 2>&1 | d --progress --title="Restoring containers" --pulsate --auto-close --no-cancel --width=400
+        prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/mnt/home/${subsubdirname}/${subsubvolname} ro false
+        prun-opt /usr/bin/sed -i 's/driver = "overlay"/driver = "btrfs"/g' ${mig_dir}/mnt/etc/containers/storage.conf
+    done
+    for userhome in ${mig_dir}/mnt/home/*/; do
+        writemigdesktop $userhome
+    done
+    prun /usr/bin/umount ${mig_dir}/mnt
+    prun /usr/bin/rmdir ${mig_dir}/mnt
 fi
