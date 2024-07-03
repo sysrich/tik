@@ -81,7 +81,7 @@ if [ -z "${skipbackup}" ]; then
 
     if [ -n "${probedpart}" ]; then
         prun /usr/bin/mkdir ${mig_dir}/mnt
-        if prun /usr/bin/mount -o compress=zstd:1,subvol=/@/home ${probedpart} ${mig_dir}/mnt; then
+        if prun-opt /usr/bin/mount -o compress=zstd:1,subvol=/@/home ${probedpart} ${mig_dir}/mnt; then
             prun /usr/sbin/btrfs quota rescan -w ${mig_dir}/mnt | d --progress --title="Detected existing /home subvolume.." --pulsate --auto-close --no-cancel --width=400
             home_size=$(prun /usr/sbin/btrfs qgroup show --raw -f ${mig_dir}/mnt | grep @/home$ | awk '{print $2}')
             tik_stick_size=$(prun /usr/sbin/btrfs fi usage --raw ${mig_dir} | grep estimated | awk '{print $3}')
