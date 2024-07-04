@@ -261,19 +261,17 @@ get_img() {
     local img_item
     local img_list
     local img_array
+    local file_type
     # Images are assumed to be named to the following standard
     # $ProductName.$Version.raw.xz for block devices
     # $ProductName.$Version.raw for systemd-repart images
     # Any extraneous fields may confuse tik's detection, selection and presentation of the image to the user
-    for img_meta in $(cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" *.raw.xz | tr '	' ":"));do
-        img_filename="$(echo $img_meta | cut -f1 -d:)"
-        img_size="$(echo $img_meta | cut -f2 -d:)"
-        list_items="${list_items} ${img_filename} ${img_size}"
-    done
-    for img_meta in $(cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" *.raw | tr '	' ":"));do
-        img_filename="$(echo $img_meta | cut -f1 -d:)"
-        img_size="$(echo $img_meta | cut -f2 -d:)"
-        list_items="${list_items} ${img_filename} ${img_size}"
+    for file_type in '*.raw.xz' '*.raw';do
+        for img_meta in $(cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" ${file_type} | tr '	' ":"));do
+            img_filename="$(echo $img_meta | cut -f1 -d:)"
+            img_size="$(echo $img_meta | cut -f2 -d:)"
+            list_items="${list_items} ${img_filename} ${img_size}"
+        done
     done
     if [ -n "${TIK_INSTALL_IMAGE}" ];then
         # install image overwritten by config.
@@ -322,6 +320,7 @@ get_img() {
     fi
 }
 
+
 dump_image() {
     local image_source_files=$1
     local image_target=$2
@@ -353,6 +352,7 @@ dump_image_dd() {
 dump_image_repart_image() {
     local image_source_files=$1
     local image_target=$2
+    systemd-dissect --no-pager --image-policy=root=unprotected -l ${TIK_IMG_DIR}/${image_source_files} --validate || error "no root partition found on image"
     prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --image=${TIK_IMG_DIR}/${image_source_files} --image-policy=root=unprotected ${image_target} | d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400
 }
 
