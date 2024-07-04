@@ -2,6 +2,22 @@
 # SPDX-FileCopyrightText: Copyright 2024 SUSE LLC
 # SPDX-FileCopyrightText: Copyright 2024 Richard Brown
 
+# Module does not actually do any encryption, but is intended to finish installation of an encrypted image, such as one deployed via systemd-repart
+# Module expects to find a single ESP partition (find_esp) and a single LUKS2 partition (find_crypt) on $TIK_INSTALL_DEVICE, upon which it will do the following
+#   - Open the encrypted device, mounting var, etc, boot/efi, tmp, run, sys, dev and proc (open_partition)
+#   - Against the mounted partition, do the following (finalise_system)
+#       - write /etc/crypttab
+#       - populate /etc/sysconfig/fde-tools
+#       - update any /etc/fstab lines regarding /boot/efi and replace them with the correct ones for the on disk vfat filesystem
+#       - populate /boot/efi with sdbootutil install & sdbootutil mkinitrd (This should also generate the PCR bindings)
+#   - Close the partition (close_partition)
+#   - Generate a recovery key (generate_recoveryKey)
+#   - Add recovery key to device and identify it as a systemd-recovery key (add_recoveryKey)
+#   - Display the recovery key to the user (display_recoveryKey)
+# It is expected the LUKS2 partition is already bound to the systems TPM2.0 chip (such as done via systemd-repart) and the TPM2 key is the only populated keyslot.
+
+encrypt_dir=/var/lib/tik/encrypt
+
 generate_recoveryKey() {
     modhex=('c' 'b' 'd' 'e' 'f' 'g' 'h' 'i' 'j' 'k' 'l' 'n' 'r' 't' 'u' 'v')
     mapfile -t raw_key < <(hexdump -v --format '1/1 "%u\n"' -n 32 /dev/random)
@@ -16,50 +32,72 @@ generate_recoveryKey() {
 
 display_recoveryKey() {
     log "Displaying Recovery Key"
-    zenity --width=500 --height=500 --no-wrap --warning --title="Encryption Recovery Key" --text="A secret recovery key has been generated for your Aeon installation:\n\n    <b><big>$key</big></b>\n\nPlease save this secret recovery key at a secure location\nIt may be used to regain access to your system if the other credentials have been lost or forgotten\nThe recovery key can be used in place of a password whenever authentication is requested\n\nYou may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode $key -t UTF8i)</span>"
+    zenity --width=500 --height=500 --no-wrap --warning --title="Encryption Recovery Key" --text="A secret recovery key has been generated for your ${TIK_OS_NAME} installation:\n\n    <b><big>$key</big></b>\n\nPlease save this secret recovery key at a secure location\nIt may be used to regain access to your system if the other credentials have been lost or forgotten\nThe recovery key can be used in place of a password whenever authentication is requested\n\nYou may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode $key -t UTF8i)</span>"
     log "Recovery Key Dialogue Dismissed"
 }
 
-encrypt_disk() {
-    probe_partitions $TIK_INSTALL_DEVICE "btrfs" "/usr/lib/os-release"
+find_crypt() {
+    probe_partitions $TIK_INSTALL_DEVICE "crypt_LUKS"
     if [ -z "${probedpart}" ]; then
-        error "ENCRYPTION FAILED: New Installation NOT FOUND"
+        error "encrypted partition not found"
     fi
-    prun /usr/bin/mkdir ${mig_dir}/mnt
-        prun /usr/bin/mount -o compress=zstd:1 ${probedpart} ${mig_dir}/mnt
-        prun /usr/bin/systemd-repart --pretty 0 --root ${mig_dir}/mnt --dry-run=0 ${probedpart}
-        prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var ${probedpart} ${mig_dir}/mnt/var
-        prun /lib/systemd/systemd-growfs ${mig_dir}/mnt/var
-        prun /usr/bin/umount ${mig_dir}/mnt/var
-        prun /usr/sbin/btrfs filesystem resize -32m /mnt
-        prun /usr/bin/umount ${mig_dir}/mnt
-    prun /usr/sbin/cryptsetup reencrypt --force-password --encrypt --reduce-device-size 32m ${probedpart} cr_root <<<"$key"
-    echo '{"type":"systemd-recovery","keyslots":["0"]}' | prun /usr/sbin/cryptsetup token import "${probedpart}"
-    prun /usr/sbin/btrfs rescue fix-device-size /dev/mapper/cr_root
-    prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/cr_root ${mig_dir}/mnt
-    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/cr_root ${mig_dir}/mnt/var
-    etcmountcmd=$(cat ${mig_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${mig_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${mig_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
-        eval prun "$etcmountcmd"
-    echo "cr_root ${probedpart} none x-initrd.attach" | prun tee ${mig_dir}/mnt/etc/crypttab
-    probe_partitions $TIK_INSTALL_DEVICE "vfat" "/EFI/systemd/shim.efi"
-    prun /usr/bin/mount ${probedpart} ${mig_dir}/mnt/boot/efi
-    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/cr_root ${mig_dir}/mnt/.snapshots
-    prun /usr/bin/mount -t tmpfs -o size=10m tmpfs "${mig_dir}/mnt/run"
-    prun /usr/bin/mount -t tmpfs -o size=10m tmpfs "${mig_dir}/mnt/tmp"
-    for i in proc dev sys; do
-        prun /usr/bin/mount --bind "/$i" "${mig_dir}/mnt/$i"
-    done
-    prun /usr/bin/chroot ${mig_dir}/mnt <<EOT
-sdbootutil mkinitrd
-umount /etc
-EOT
-    for i in proc dev sys run tmp 'boot/efi' etc var '.snapshots'; do
-        prun /usr/bin/umount "${mig_dir}/mnt/$i"
-    done
-    prun /usr/bin/umount ${mig_dir}/mnt
-    prun /usr/bin/rmdir ${mig_dir}/mnt
+    cryptpart=${probedpart}
 }
 
+find_esp() {
+    probe_partitions $TIK_INSTALL_DEVICE "vfat"
+    if [ -z "${probedpart}" ]; then
+        error "esp partition not found"
+    fi
+    esppart=${probedpart}
+}
+
+add_recoveryKey() {
+    prun /usr/sbin/cryptsetup luksAddKey --verbose --token-only --batch-mode --force-password "${cryptpart}" <<<"$key"
+    echo '{"type":"systemd-recovery","keyslots":["1"]}' | prun /usr/sbin/cryptsetup token import "${cryptpart}"
+}
+
+open_partition() {
+    prun /usr/sbin/cryptsetup luksOpen ${cryptpart} cr_root
+    prun /usr/bin/mkdir ${encrypt_dir}/mnt
+    prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/cr_root ${encrypt_dir}/mnt
+    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/cr_root ${encrypt_dir}/mnt/.snapshots
+    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/cr_root ${encrypt_dir}/mnt/var
+    etcmountcmd=$(cat ${encrypt_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${encrypt_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${encrypt_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
+    eval prun "$etcmountcmd"
+    prun /usr/bin/mount ${esppart} ${encrypt_dir}/mnt/boot/efi
+    prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/run"
+    prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/tmp"
+    for i in proc dev sys; do
+        prun /usr/bin/mount --bind "/$i" "${encrypt_dir}/mnt/$i"
+    done
+}
+
+finalise_system() {
+    echo "cr_root ${cryptpart} none x-initrd.attach" | prun tee ${encrypt_dir}/mnt/etc/crypttab
+    echo "FDE_SEAL_PCR_LIST=0,2,4,7,9" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
+    espUUID=$(lsblk -n -r -o UUID ${esppart})
+    prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
+    prun /usr/bin/chroot ${encrypt_dir}/mnt <<EOT
+sdbootutil install
+sdbootutil mkinitrd
+EOT
+}
+
+close_partition() {
+    for i in proc dev sys run tmp 'boot/efi' etc var '.snapshots'; do
+        prun /usr/bin/umount "${encrypt_dir}/mnt/$i"
+    done
+    prun /usr/bin/umount ${encrypt_dir}/mnt
+    prun /usr/bin/rmdir ${encrypt_dir}/mnt
+    prun /usr/sbin/cryptsetup luksClose cr_root
+}
+
+find_crypt
+find_esp
+open_partition
+finalise_system
+close_partition
 generate_recoveryKey
+add_recoveryKey
 display_recoveryKey
-encrypt_disk
