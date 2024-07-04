@@ -87,16 +87,23 @@ probe_partitions() {
     prun /usr/bin/mkdir -p ${probe_dir}/mnt
     probedpart=""
     for part in $(lsblk ${device} -p -n -r -o ID-LINK,FSTYPE|tr -s ' ' ";"|grep ";${filesystem_type}"|cut -d\; -f1); do
-        # Fallback to unix device in order to fix issue with USB devices
-        probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
+        if [ -z ${filematch} ]; then
+            log "[probe_partitions] no file match required"
+            # Fallback to unix device in order to fix issue with USB devices
+            probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
+            log "[probe_partitions] ${probedpart} found"
         # Check if ${filematch} exists
-        if [ -f ${probe_dir}/mnt/${filematch} ]; then
+        else
             prun /usr/bin/mount ${mountops} ${probedpart} "${probe_dir}/mnt"
-            log "[probe_partitions] /dev/disk/by-id/${part} found"
-            if grep -q 'PRETTY_NAME="openSUSE MicroOS"' ${probe_dir}/mnt/${filematch} && [ -f ${probe_dir}/mnt/usr/bin/gnome-shell ]; then
-                # Found legacy Aeon, activate easter egg
-                log "Legacy Aeon Install FOUND"
-                legacy_aeon=1
+            if [ -f ${probe_dir}/mnt/${filematch} ]; then
+                log "[probe_partitions] ${filematch} found"
+                probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
+                log "[probe_partitions] ${probedpart} found"
+                if grep -q 'PRETTY_NAME="openSUSE MicroOS"' ${probe_dir}/mnt/${filematch} && [ -f ${probe_dir}/mnt/usr/bin/gnome-shell ]; then
+                    # Found legacy Aeon, activate easter egg
+                    log "Legacy Aeon Install FOUND"
+                    legacy_aeon=1
+                fi
             fi
             prun-opt /usr/bin/umount ${probe_dir}/mnt
         fi
