@@ -372,16 +372,23 @@ dump_image_repart_self() {
 }
 
 set_boot_target() {
+    local efipartnum
     if [ "${debug}" == "1" ]; then
         log "[debug] Not setting EFI boot target"
     else
         # Cleanup any existing openSUSE boot entries
         prun-opt /usr/sbin/efibootmgr -B -L "openSUSE Boot Manager"
         prun /usr/sbin/efibootmgr -O
-        # Currently assuming Aeon-like partition layout and shim name. This function will need extra intelligence to probe partitions for other image layouts
-        prun /usr/sbin/efibootmgr -c -L "openSUSE Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p 2
+        log "[set_boot_target] searching for ESP partition containing \EFI\systemd\shim.efi on ${TIK_INSTALL_DEVICE}"
+        probe_partitions $TIK_INSTALL_DEVICE "vfat" "\EFI\systemd\shim.efi"
+        if [ -z "${probedpart}" ]; then
+            error "esp partition not found"
+        fi
+        efipartnum=$(lsblk ${probedpart} -p -n -r -o PARTN)
+        log "[set_boot_target] found ESP on ${probedpart}, partition number ${efipartnum}"
+        prun /usr/sbin/efibootmgr -c -L "openSUSE Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p ${efipartnum}
         # Log to show the resulting eficonfig
-        log "[efibootmgr] $(prun /usr/sbin/efibootmgr)"
+        log "[set_boot_target] $(prun /usr/sbin/efibootmgr)"
     fi
 }
 
