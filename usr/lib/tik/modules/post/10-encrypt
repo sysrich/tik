@@ -22,6 +22,7 @@ if [ ! -d ${encrypt_dir} ]; then
 fi
 
 generate_recoveryKey() {
+    log "[generate_recoveryKey] generating recovery key"
     modhex=('c' 'b' 'd' 'e' 'f' 'g' 'h' 'i' 'j' 'k' 'l' 'n' 'r' 't' 'u' 'v')
     mapfile -t raw_key < <(hexdump -v --format '1/1 "%u\n"' -n 32 /dev/random)
     [ "${#raw_key[@]}" = 32 ]
@@ -34,33 +35,39 @@ generate_recoveryKey() {
 }
 
 display_recoveryKey() {
-    log "Displaying Recovery Key"
+    log "[display_recoveryKey] displaying recovery key"
     zenity --width=500 --height=500 --no-wrap --warning --title="Encryption Recovery Key" --text="A secret recovery key has been generated for your ${TIK_OS_NAME} installation:\n\n    <b><big>$key</big></b>\n\nPlease save this secret recovery key at a secure location\nIt may be used to regain access to your system if the other credentials have been lost or forgotten\nThe recovery key can be used in place of a password whenever authentication is requested\n\nYou may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode $key -t UTF8i)</span>"
-    log "Recovery Key Dialogue Dismissed"
+    log "[display_recoveryKey] recovery key dialogue dismissed"
 }
 
 find_crypt() {
+    log "[find_crypt] finding encrypted partiation"
     probe_partitions $TIK_INSTALL_DEVICE "crypto_LUKS"
     if [ -z "${probedpart}" ]; then
         error "encrypted partition not found"
     fi
     cryptpart=${probedpart}
+    log "[find_crypt] found ${cryptpart}"
 }
 
 find_esp() {
+    log "[find_esp] finding ESP"
     probe_partitions $TIK_INSTALL_DEVICE "vfat"
     if [ -z "${probedpart}" ]; then
         error "esp partition not found"
     fi
     esppart=${probedpart}
+    log "[find_esp] found ${esppart}"
 }
 
 add_recoveryKey() {
+    log "[add_recoveryKey] adding recovery key to ${cryptpart}"
     prun /usr/sbin/cryptsetup luksAddKey --verbose --token-only --batch-mode --force-password "${cryptpart}" <<<"$key"
     echo '{"type":"systemd-recovery","keyslots":["1"]}' | prun /usr/sbin/cryptsetup token import "${cryptpart}"
 }
 
 open_partition() {
+    log "[open_partition] opening ${cryptpart} and mounting for chroot"
     prun /usr/sbin/cryptsetup luksOpen ${cryptpart} cr_root
     prun /usr/bin/mkdir ${encrypt_dir}/mnt
     prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/cr_root ${encrypt_dir}/mnt
@@ -77,7 +84,8 @@ open_partition() {
 }
 
 finalise_system() {
-    echo "cr_root ${cryptpart} none x-initrd.attach" | prun tee ${encrypt_dir}/mnt/etc/crypttab
+    log "[finalise_system] configuring crypttab, PCR list, fstab and populating ${esppart}"
+    echo "cr_root ${cryptpart} none tpm2-device=auto,x-initrd.attach" | prun tee ${encrypt_dir}/mnt/etc/crypttab
     echo "FDE_SEAL_PCR_LIST=0,2,4,7,9" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
     espUUID=$(lsblk -n -r -o UUID ${esppart})
     prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
@@ -88,6 +96,7 @@ EOT
 }
 
 close_partition() {
+    log "[close_partition] unmounting and closing ${cryptpart}"
     for i in proc dev sys run tmp 'boot/efi' etc var '.snapshots'; do
         prun /usr/bin/umount "${encrypt_dir}/mnt/$i"
     done
