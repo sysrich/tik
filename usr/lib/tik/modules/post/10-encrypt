@@ -71,6 +71,9 @@ open_partition() {
     prun /usr/sbin/cryptsetup luksOpen ${cryptpart} cr_root
     prun /usr/bin/mkdir ${encrypt_dir}/mnt
     prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/cr_root ${encrypt_dir}/mnt
+    for i in proc dev sys 'sys/firmware/efi/efivars'; do
+        prun /usr/bin/mount --bind "/$i" "${encrypt_dir}/mnt/$i"
+    done
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/cr_root ${encrypt_dir}/mnt/.snapshots
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/cr_root ${encrypt_dir}/mnt/var
     etcmountcmd=$(cat ${encrypt_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${encrypt_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${encrypt_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
@@ -78,9 +81,7 @@ open_partition() {
     prun /usr/bin/mount ${esppart} ${encrypt_dir}/mnt/boot/efi
     prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/run"
     prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/tmp"
-    for i in proc dev sys; do
-        prun /usr/bin/mount --bind "/$i" "${encrypt_dir}/mnt/$i"
-    done
+    prun /usr/bin/mount -t securityfs securityfs "${encrypt_dir}/mnt/sys/kernel/security"
 }
 
 finalise_system() {
@@ -97,7 +98,7 @@ EOT
 
 close_partition() {
     log "[close_partition] unmounting and closing ${cryptpart}"
-    for i in proc dev sys run tmp 'boot/efi' etc var '.snapshots'; do
+    for i in proc dev run tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' sys; do
         prun /usr/bin/umount "${encrypt_dir}/mnt/$i"
     done
     prun /usr/bin/umount ${encrypt_dir}/mnt
