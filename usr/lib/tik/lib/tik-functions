@@ -351,6 +351,7 @@ dump_image() {
 dump_image_dd() {
     local image_source_files=$1
     local image_target=$2
+    log "[dump_image_dd] deploying ${TIK_IMG_DIR}/${image_source_files}"
     (xzcat ${TIK_IMG_DIR}/${image_source_files} | pv -f -F "# %b copied in %t %r" | prun /usr/bin/dd of=${image_target} bs=64k) 2>&1 | d --progress --title="Installing ${TIK_OS_NAME}" --pulsate --auto-close --no-cancel --width=400
     prun /usr/bin/sync | d --progress --title="Syncing" --pulsate --auto-close --no-cancel --width=400
 }
@@ -358,12 +359,15 @@ dump_image_dd() {
 dump_image_repart_image() {
     local image_source_files=$1
     local image_target=$2
+    log "[dump_image_repart_image] deploying ${TIK_IMG_DIR}/${image_source_files}"
     systemd-dissect --no-pager --image-policy=root=unprotected -l ${TIK_IMG_DIR}/${image_source_files} --validate || error "no root partition found on image"
+    log "[systemd-dissect] ${TIK_IMG_DIR}/${image_source_files} is valid"
     prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --image=${TIK_IMG_DIR}/${image_source_files} --image-policy=root=unprotected ${image_target} | d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400
 }
 
 dump_image_repart_self() {
     local image_target=$1
+    log "[dump_image_repart_self] self-deploying"
     prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no ${image_target} | d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400
 }
 

@@ -17,6 +17,9 @@
 # It is expected the LUKS2 partition is already bound to the systems TPM2.0 chip (such as done via systemd-repart) and the TPM2 key is the only populated keyslot.
 
 encrypt_dir=/var/lib/tik/encrypt
+if [ ! -d ${encrypt_dir} ]; then
+    prun /usr/bin/mkdir -p ${encrypt_dir}
+fi
 
 generate_recoveryKey() {
     modhex=('c' 'b' 'd' 'e' 'f' 'g' 'h' 'i' 'j' 'k' 'l' 'n' 'r' 't' 'u' 'v')
