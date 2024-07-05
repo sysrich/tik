@@ -94,7 +94,7 @@ probe_partitions() {
             log "[probe_partitions] ${probedpart} found"
         # Check if ${filematch} exists
         else
-            prun /usr/bin/mount ${mountops} ${probedpart} "${probe_dir}/mnt"
+            prun /usr/bin/mount ${mountops} ${part} "${probe_dir}/mnt"
             if [ -f ${probe_dir}/mnt/${filematch} ]; then
                 log "[probe_partitions] ${filematch} found"
                 probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
@@ -380,7 +380,7 @@ set_boot_target() {
         prun-opt /usr/sbin/efibootmgr -B -L "openSUSE Boot Manager"
         prun /usr/sbin/efibootmgr -O
         log "[set_boot_target] searching for ESP partition containing \EFI\systemd\shim.efi on ${TIK_INSTALL_DEVICE}"
-        probe_partitions $TIK_INSTALL_DEVICE "vfat" "\EFI\systemd\shim.efi"
+        probe_partitions ${TIK_INSTALL_DEVICE} "vfat" "\EFI\systemd\shim.efi"
         if [ -z "${probedpart}" ]; then
             error "esp partition not found"
         fi
