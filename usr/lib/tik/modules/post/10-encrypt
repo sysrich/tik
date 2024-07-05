@@ -86,7 +86,7 @@ open_partition() {
 
 finalise_system() {
     log "[finalise_system] configuring crypttab, PCR list, fstab and populating ${esppart}"
-    echo "cr_root ${cryptpart} none tpm2-device=auto,x-initrd.attach" | prun tee ${encrypt_dir}/mnt/etc/crypttab
+    echo "cr_root ${cryptpart} none x-initrd.attach,tpm2-device=auto" | prun tee ${encrypt_dir}/mnt/etc/crypttab
     echo "FDE_SEAL_PCR_LIST=0,2,4,7,9" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
     espUUID=$(lsblk -n -r -o UUID ${esppart})
     prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
