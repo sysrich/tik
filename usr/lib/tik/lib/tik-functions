@@ -91,17 +91,17 @@ probe_partitions() {
             log "[probe_partitions] no file match required"
             # Fallback to unix device in order to fix issue with USB devices
             probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
-            log "[probe_partitions] ${probedpart} found"
+            log "[probe_partitions] Partition ${probedpart} found"
         else    # Check if ${filematch} exists
             dd
             # Fallback to unix device in order to fix issue with USB devices
             part="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
             prun /usr/bin/mount ${mountops} ${part} "${probe_dir}/mnt"
             if [ -f ${probe_dir}/mnt/${filematch} ]; then
-                log "[probe_partitions] ${filematch} found"
+                log "[probe_partitions] File ${filematch} found"
                  # Fallback to unix device in order to fix issue with USB devices
                 probedpart="${part}"
-                log "[probe_partitions] ${probedpart} found"
+                log "[probe_partitions] Partition ${probedpart} found"
                 if grep -q 'PRETTY_NAME="openSUSE MicroOS"' ${probe_dir}/mnt/${filematch} && [ -f ${probe_dir}/mnt/usr/bin/gnome-shell ]; then
                     # Found legacy Aeon, activate easter egg
                     log "Legacy Aeon Install FOUND"
