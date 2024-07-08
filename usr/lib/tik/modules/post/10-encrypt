@@ -92,11 +92,11 @@ finalise_system() {
     espUUID=$(lsblk -n -r -o UUID ${esppart})
     prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
     # Populate ESP so we can set the contents as the boot target
-    prun /usr/bin/chroot ${encrypt_dir}/mnt 'sdbootutil install'
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil install
     # Set the boot target
     set_boot_target
-    # mkinitrd to input crypttab
-    prun /usr/bin/chroot ${encrypt_dir}/mnt 'sdbootutil mkinitrd'
+    # mkinitrd to input crypttab and regenerate PCRs
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil mkinitrd
 }
 
 close_partition() {
@@ -109,11 +109,27 @@ close_partition() {
     prun /usr/sbin/cryptsetup luksClose cr_root
 }
 
+(
+echo '# Finding encrypted partition'
 find_crypt
+echo '14'
+echo '# Finding EFI system partition'
 find_esp
+echo '28'
+echo "# Opening ${cryptpart}"
 open_partition
+echo '42'
+echo '# Finalising system encryption'
 finalise_system
+echo '56'
+echo "# Closing ${cryptpart}"
 close_partition
+echo '70'
+echo '# Generating recovery key'
 generate_recoveryKey
+echo '84'
+echo '# Adding recovery key'
 add_recoveryKey
+echo '100'
+) | d --progress --title="Finalising Encryption" --auto-close --no-cancel --width=400
 display_recoveryKey
