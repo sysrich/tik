@@ -17,30 +17,23 @@
 # It is expected the LUKS2 partition is already bound to the systems TPM2.0 chip (such as done via systemd-repart) and the TPM2 key is the only populated keyslot.
 
 encrypt_dir=/var/lib/tik/encrypt
+encrypt_pipe=/tmp/encryptpipe
 if [ ! -d ${encrypt_dir} ]; then
     prun /usr/bin/mkdir -p ${encrypt_dir}
 fi
+if [ ! -p ${encrypt_pipe} ]; then
+    mkfifo ${encrypt_pipe}
+fi
 
-generate_recoveryKey() {
-    log "[generate_recoveryKey] generating recovery key"
-    modhex=('c' 'b' 'd' 'e' 'f' 'g' 'h' 'i' 'j' 'k' 'l' 'n' 'r' 't' 'u' 'v')
-    mapfile -t raw_key < <(hexdump -v --format '1/1 "%u\n"' -n 32 /dev/random)
-    [ "${#raw_key[@]}" = 32 ]
-    key=""
-    for ((i=0;i<"${#raw_key[@]}";++i)); do
-        [ "$i" -gt 0 ] && [ "$((i%4))" -eq 0 ] && key="$key-"
-        c="${raw_key[i]}"
-        key="$key${modhex[$((c>>4))]}${modhex[$((c&15))]}"
-    done
-}
-
-display_recoveryKey() {
-    log "[display_recoveryKey] displaying recovery key"
-    zenity --width=500 --height=500 --no-wrap --warning --title="Encryption Recovery Key" --text="A secret recovery key has been generated for your ${TIK_OS_NAME} installation:\n\n    <b><big>$key</big></b>\n\nPlease save this secret recovery key at a secure location\nIt may be used to regain access to your system if the other credentials have been lost or forgotten\nThe recovery key can be used in place of a password whenever authentication is requested\n\nYou may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode $key -t UTF8i)</span>"
-    log "[display_recoveryKey] recovery key dialogue dismissed"
+crypt_progress() {
+    log "[crypt_progress] Monitoring encryption progress"
+    (tail -f ${encrypt_pipe}) | d --progress --title="Finalising Encryption" --auto-close --no-cancel --width=400
+    rm ${encrypt_pipe}
+    log "[crypt_progress] Encryption progress reached 100%"
 }
 
 find_crypt() {
+    echo "# Finding encrypted partition" > ${encrypt_pipe}
     log "[find_crypt] finding encrypted partition"
     probe_partitions $TIK_INSTALL_DEVICE "crypto_LUKS"
     if [ -z "${probedpart}" ]; then
@@ -48,9 +41,11 @@ find_crypt() {
     fi
     cryptpart=${probedpart}
     log "[find_crypt] found ${cryptpart}"
+    echo "14" > ${encrypt_pipe}
 }
 
 find_esp() {
+    echo "# Finding encrypted partition" > ${encrypt_pipe}
     log "[find_esp] finding ESP"
     probe_partitions $TIK_INSTALL_DEVICE "vfat"
     if [ -z "${probedpart}" ]; then
@@ -58,15 +53,11 @@ find_esp() {
     fi
     esppart=${probedpart}
     log "[find_esp] found ${esppart}"
-}
-
-add_recoveryKey() {
-    log "[add_recoveryKey] adding recovery key to ${cryptpart}"
-    prun /usr/sbin/cryptsetup luksAddKey --verbose --token-only --batch-mode --force-password "${cryptpart}" <<<"$key"
-    echo '{"type":"systemd-recovery","keyslots":["1"]}' | prun /usr/sbin/cryptsetup token import "${cryptpart}"
+    echo "28" > ${encrypt_pipe}
 }
 
 open_partition() {
+    echo "# Opening ${cryptpart}" > ${encrypt_pipe}
     log "[open_partition] opening ${cryptpart} and mounting for chroot"
     prun /usr/sbin/cryptsetup luksOpen ${cryptpart} cr_root
     prun /usr/bin/mkdir ${encrypt_dir}/mnt
@@ -82,9 +73,11 @@ open_partition() {
     prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/run"
     prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/tmp"
     prun /usr/bin/mount -t securityfs securityfs "${encrypt_dir}/mnt/sys/kernel/security"
+    echo "42" > ${encrypt_pipe}
 }
 
 finalise_system() {
+    echo "# Finalising encryption" > ${encrypt_pipe}
     log "[finalise_system] configuring crypttab, PCR list, fstab and populating ${esppart}"
     cryptUUID=$(lsblk -n -r -o UUID ${cryptpart})
     echo "cr_root UUID=${cryptUUID} none x-initrd.attach,tpm2-device=auto" | prun tee ${encrypt_dir}/mnt/etc/crypttab
@@ -97,9 +90,11 @@ finalise_system() {
     set_boot_target
     # mkinitrd to input crypttab and regenerate PCRs
     prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil mkinitrd
+    echo "56" > ${encrypt_pipe}
 }
 
 close_partition() {
+    echo "# Closing ${cryptpart}" > ${encrypt_pipe}
     log "[close_partition] unmounting and closing ${cryptpart}"
     for i in proc dev run tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' sys; do
         prun /usr/bin/umount "${encrypt_dir}/mnt/$i"
@@ -107,8 +102,39 @@ close_partition() {
     prun /usr/bin/umount ${encrypt_dir}/mnt
     prun /usr/bin/rmdir ${encrypt_dir}/mnt
     prun /usr/sbin/cryptsetup luksClose cr_root
+    echo "70" > ${encrypt_pipe}
 }
 
+generate_recoveryKey() {
+    echo "# Generating recovery key" > ${encrypt_pipe}
+    log "[generate_recoveryKey] generating recovery key"
+    modhex=('c' 'b' 'd' 'e' 'f' 'g' 'h' 'i' 'j' 'k' 'l' 'n' 'r' 't' 'u' 'v')
+    mapfile -t raw_key < <(hexdump -v --format '1/1 "%u\n"' -n 32 /dev/random)
+    [ "${#raw_key[@]}" = 32 ]
+    key=""
+    for ((i=0;i<"${#raw_key[@]}";++i)); do
+        [ "$i" -gt 0 ] && [ "$((i%4))" -eq 0 ] && key="$key-"
+        c="${raw_key[i]}"
+        key="$key${modhex[$((c>>4))]}${modhex[$((c&15))]}"
+    done
+    echo "84" > ${encrypt_pipe}
+}
+
+add_recoveryKey() {
+    echo "# Adding recovery key to ${cryptpart}" > ${encrypt_pipe}
+    log "[add_recoveryKey] adding recovery key to ${cryptpart}"
+    prun /usr/sbin/cryptsetup luksAddKey --verbose --token-only --batch-mode --force-password "${cryptpart}" <<<"$key"
+    echo '{"type":"systemd-recovery","keyslots":["1"]}' | prun /usr/sbin/cryptsetup token import "${cryptpart}"
+    echo "100" > ${encrypt_pipe}
+}
+
+display_recoveryKey() {
+    log "[display_recoveryKey] displaying recovery key"
+    zenity --width=500 --height=500 --no-wrap --warning --title="Encryption Recovery Key" --text="A secret recovery key has been generated for your ${TIK_OS_NAME} installation:\n\n    <b><big>$key</big></b>\n\nPlease save this secret recovery key at a secure location\nIt may be used to regain access to your system if the other credentials have been lost or forgotten\nThe recovery key can be used in place of a password whenever authentication is requested\n\nYou may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode $key -t UTF8i)</span>"
+    log "[display_recoveryKey] recovery key dialogue dismissed"
+}
+
+crypt_progress &
 find_crypt
 find_esp
 open_partition
