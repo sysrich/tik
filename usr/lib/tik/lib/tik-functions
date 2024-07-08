@@ -93,7 +93,6 @@ probe_partitions() {
             probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
             log "[probe_partitions] Partition ${probedpart} found"
         else    # Check if ${filematch} exists
-            dd
             # Fallback to unix device in order to fix issue with USB devices
             part="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
             prun /usr/bin/mount ${mountops} ${part} "${probe_dir}/mnt"
