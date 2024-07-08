@@ -55,7 +55,8 @@ load_modules "pre" "custom"
 get_disk
 get_img
 dump_image "${TIK_INSTALL_IMAGE}" "${TIK_INSTALL_DEVICE}"
-set_boot_target
 
 load_modules "post"
 load_modules "post" "custom"
+
+set_boot_target

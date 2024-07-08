@@ -378,12 +378,14 @@ set_boot_target() {
     local efipartnum
     if [ "${debug}" == "1" ]; then
         log "[debug] Not setting EFI boot target"
+    elif [ -n "${efi_already_set}" ]; then
+        log "[set_boot_target] boot target already set, not setting again"
     else
         # Cleanup any existing openSUSE boot entries
         prun-opt /usr/sbin/efibootmgr -B -L "openSUSE Boot Manager"
         prun /usr/sbin/efibootmgr -O
-        log "[set_boot_target] searching for ESP partition containing \EFI\systemd\shim.efi on ${TIK_INSTALL_DEVICE}"
-        probe_partitions ${TIK_INSTALL_DEVICE} "vfat" "\EFI\systemd\shim.efi"
+        log "[set_boot_target] searching for ESP partition containing /EFI/systemd/shim.efi on ${TIK_INSTALL_DEVICE}"
+        probe_partitions ${TIK_INSTALL_DEVICE} "vfat" "/EFI/systemd/shim.efi"
         if [ -z "${probedpart}" ]; then
             error "esp partition not found"
         fi
@@ -392,6 +394,7 @@ set_boot_target() {
         prun /usr/sbin/efibootmgr -c -L "openSUSE Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p ${efipartnum}
         # Log to show the resulting eficonfig
         log "[set_boot_target] $(prun /usr/sbin/efibootmgr)"
+        efi_already_set=1
     fi
 }
 

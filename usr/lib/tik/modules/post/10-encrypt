@@ -41,7 +41,7 @@ display_recoveryKey() {
 }
 
 find_crypt() {
-    log "[find_crypt] finding encrypted partiation"
+    log "[find_crypt] finding encrypted partition"
     probe_partitions $TIK_INSTALL_DEVICE "crypto_LUKS"
     if [ -z "${probedpart}" ]; then
         error "encrypted partition not found"
@@ -90,10 +90,12 @@ finalise_system() {
     echo "FDE_SEAL_PCR_LIST=0,2,4,7,9" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
     espUUID=$(lsblk -n -r -o UUID ${esppart})
     prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
-    prun /usr/bin/chroot ${encrypt_dir}/mnt <<EOT
-sdbootutil install
-sdbootutil mkinitrd
-EOT
+    # Populate ESP so we can set the contents as the boot target
+    prun /usr/bin/chroot ${encrypt_dir}/mnt 'sdbootutil install'
+    # Set the boot target
+    set_boot_target
+    # mkinitrd to input crypttab
+    prun /usr/bin/chroot ${encrypt_dir}/mnt 'sdbootutil mkinitrd'
 }
 
 close_partition() {
