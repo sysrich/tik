@@ -364,6 +364,8 @@ dump_image_repart_image() {
     log "[dump_image_repart_image] deploying ${TIK_IMG_DIR}/${image_source_files}"
     systemd-dissect --no-pager --image-policy=root=unprotected -l ${TIK_IMG_DIR}/${image_source_files} --validate || error "no root partition found on image"
     log "[systemd-dissect] ${TIK_IMG_DIR}/${image_source_files} is valid"
+    # Give dissect more of a chance to close the image
+    sleep 1
     prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --image=${TIK_IMG_DIR}/${image_source_files} --image-policy=root=unprotected ${image_target} | d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400
 }
 
