@@ -150,7 +150,6 @@ find_esp
 open_partition
 finalise_system
 close_partition
-# FIXME: Disable recovery key for now
-#generate_recoveryKey
-#add_recoveryKey
-#display_recoveryKey
+generate_recoveryKey
+add_recoveryKey
+display_recoveryKey
