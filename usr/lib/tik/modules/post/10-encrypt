@@ -85,6 +85,8 @@ finalise_system() {
     # FIXME: Temporarily use PCR 7 only to test enrolment quicker
     echo "FDE_SEAL_PCR_LIST=7" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
     #echo "FDE_SEAL_PCR_LIST=0,2,4,7,9" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
+    # FIXME : Debug fstab editing
+    cat ${encrypt_dir}/mnt/etc/fstab 1>&2
     espUUID=$(lsblk -n -r -o UUID ${esppart})
     prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
     # FIXME : Debug fstab editing
@@ -146,6 +148,7 @@ find_esp
 open_partition
 finalise_system
 close_partition
-generate_recoveryKey
-add_recoveryKey
-display_recoveryKey
+# FIXME: Disable recovery key for now
+#generate_recoveryKey
+#add_recoveryKey
+#display_recoveryKey
