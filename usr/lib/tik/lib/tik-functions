@@ -366,13 +366,13 @@ dump_image_repart_image() {
     log "[systemd-dissect] ${TIK_IMG_DIR}/${image_source_files} is valid"
     # Give dissect more of a chance to close the image
     sleep 1
-    prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --image=${TIK_IMG_DIR}/${image_source_files} --image-policy=root=unprotected ${image_target} | d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400
+    prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --image=${TIK_IMG_DIR}/${image_source_files} --image-policy=root=unprotected ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
 }
 
 dump_image_repart_self() {
     local image_target=$1
     log "[dump_image_repart_self] self-deploying"
-    prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no ${image_target} | d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400
+    prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
 }
 
 set_boot_target() {
