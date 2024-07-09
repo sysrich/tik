@@ -88,7 +88,7 @@ finalise_system() {
     espUUID=$(lsblk -n -r -o UUID ${esppart})
     prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
     # FIXME : Debug fstab editing
-    cat ${encrypt_dir}/mnt/etc/fstab
+    cat ${encrypt_dir}/mnt/etc/fstab 1>&2
     # Populate ESP so we can set the contents as the boot target
     prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil install
     echo "56" > ${encrypt_pipe}
