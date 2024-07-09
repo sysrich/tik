@@ -40,11 +40,11 @@ cleanup() {
         zenity --timeout 5 --info --no-wrap --text="<b>Test Succeeded:</b>\n\nHave a nice day!"
     elif [ "${retval}" == "0" ]; then
         zenity --timeout 5 --info --no-wrap --title="Installation Complete!" --text="${TIK_OS_NAME} has been installed.\n\n<b>System is rebooting</b>"
-        systemctl reboot --force
+        prun systemctl reboot --force
     else
         zenity --error --no-wrap --title="Installation Failed" --text="Please file a bug report at <tt>${TIK_BUG_URL}</tt>\n\nPlease include the <tt>tik.log</tt> file\nIt can be found on the IGNITION partition on this USB Stick\n\n<b>System is shutting down</b>"
         cp -a ${tik_log} /ignition
-        systemctl poweroff --force
+        prun systemctl poweroff --force
     fi
 }
 trap cleanup EXIT
