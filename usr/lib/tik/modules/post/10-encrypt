@@ -85,17 +85,19 @@ finalise_system() {
     lsblk -n -r -o NAME,UUID 1>&2
     # noauto as it's being mounted in the initrd as it's /
     echo "cr_root UUID=${cryptUUID} none x-initrd.attach,noauto,tpm2-device=auto" | prun tee ${encrypt_dir}/mnt/etc/crypttab
-    # FIXME : Debug crypttab editing
-    cat ${encrypt_dir}/mnt/etc/crypttab 1>&2
-    # FIXME: Temporarily use PCR 7 only to test enrolment quicker
-    echo "FDE_SEAL_PCR_LIST=7" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
-    #echo "FDE_SEAL_PCR_LIST=0,2,4,7,9" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
-    # FIXME : Debug fstab editing
-    cat ${encrypt_dir}/mnt/etc/fstab 1>&2
+    # Explaining the chosen PCR list below
+    # - 0 - UEFI firmware, will require recovery key after firmware update
+    # - 4 - Bootloader and drivers, should never recovery key as bootloader should only be updated with new PCR measurements
+    # - 5 - GPT Partition table, should never require recovery key as partition layout shouldn't change
+    # - 7 - SecureBoot state, will require recovery key if SecureBoot is enabled/disabled
+    # - 9 - initrd - should never require recovery key as initrd should only be updated with new PCR measurements
+    echo "FDE_SEAL_PCR_LIST=0,4,5,7,9" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
+    # Explaining why the following PCRs were not used
+    # - 1 - Not only changes with CPU/RAM/hardware changes, but also when UEFI config changes are made, which is too common to lockdown
+    # - 2 - Includes option ROMs on pluggable hardware, such as external GPUs. Attaching a GPU to your laptop shouldn't hinder booting.
+    # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
     espUUID=$(lsblk -n -r -o UUID ${esppart})
     prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
-    # FIXME : Debug fstab editing
-    cat ${encrypt_dir}/mnt/etc/fstab 1>&2
     echo "# Installing boot loader" > ${encrypt_pipe}
     # Populate ESP so we can set the contents as the boot target
     prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -v --esp-path /boot/efi --no-variables install
