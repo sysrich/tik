@@ -81,7 +81,8 @@ finalise_system() {
     echo "# Finalising encryption" > ${encrypt_pipe}
     log "[finalise_system] configuring crypttab, PCR list, fstab and populating ${esppart}"
     cryptUUID=$(lsblk -n -r -d -o UUID ${cryptpart})
-    echo "cr_root UUID=${cryptUUID} none x-initrd.attach,tpm2-device=auto" | prun tee ${encrypt_dir}/mnt/etc/crypttab
+    # noauto as it's being mounted in the initrd as it's /
+    echo "cr_root UUID=${cryptUUID} none x-initrd.attach,noauto,tpm2-device=auto" | prun tee ${encrypt_dir}/mnt/etc/crypttab
     # FIXME : Debug crypttab editing
     cat ${encrypt_dir}/mnt/etc/crypttab 1>&2
     # FIXME: Temporarily use PCR 7 only to test enrolment quicker
