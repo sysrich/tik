@@ -78,9 +78,11 @@ open_partition() {
 }
 
 finalise_system() {
-    echo "# Finalising encryption" > ${encrypt_pipe}
+    echo "# Writing crypttab, fstab, and PCR policy" > ${encrypt_pipe}
     log "[finalise_system] configuring crypttab, PCR list, fstab and populating ${esppart}"
     cryptUUID=$(lsblk -n -r -d -o UUID ${cryptpart})
+    # FIXME: Debug lsblk output
+    lsblk -n -r -o NAME,UUID 1>&2
     # noauto as it's being mounted in the initrd as it's /
     echo "cr_root UUID=${cryptUUID} none x-initrd.attach,noauto,tpm2-device=auto" | prun tee ${encrypt_dir}/mnt/etc/crypttab
     # FIXME : Debug crypttab editing
@@ -94,14 +96,18 @@ finalise_system() {
     prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
     # FIXME : Debug fstab editing
     cat ${encrypt_dir}/mnt/etc/fstab 1>&2
+    echo "# Installing boot loader" > ${encrypt_pipe}
     # Populate ESP so we can set the contents as the boot target
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil install
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -v --esp-path /boot/efi --no-variables install
     echo "56" > ${encrypt_pipe}
     # Set the boot target
     set_boot_target
+    echo "# Creating initrd" > ${encrypt_pipe}
     # mkinitrd to input crypttab and regenerate PCRs
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil mkinitrd
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -v --esp-path /boot/efi --no-variables mkinitrd
     echo "70" > ${encrypt_pipe}
+    # FIXME: Debug lsblk output
+    lsblk -n -r -o NAME,UUID 1>&2
 }
 
 close_partition() {
