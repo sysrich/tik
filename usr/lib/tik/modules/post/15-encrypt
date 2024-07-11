@@ -18,8 +18,8 @@
 
 encrypt_dir=/var/lib/tik/encrypt
 encrypt_pipe=/tmp/encryptpipe
-if [ ! -d ${encrypt_dir} ]; then
-    prun /usr/bin/mkdir -p ${encrypt_dir}
+if [ ! -d ${encrypt_dir}/mnt ]; then
+    prun /usr/bin/mkdir -p ${encrypt_dir}/mnt
 fi
 if [ ! -p ${encrypt_pipe} ]; then
     mkfifo ${encrypt_pipe}
@@ -61,7 +61,6 @@ open_partition() {
     log "[open_partition] opening ${cryptpart} and mounting for chroot"
     prun /usr/sbin/cryptsetup luksOpen ${cryptpart} cr_root
     echo "35" > ${encrypt_pipe}
-    prun /usr/bin/mkdir ${encrypt_dir}/mnt
     prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/cr_root ${encrypt_dir}/mnt
     for i in proc dev sys 'sys/firmware/efi/efivars'; do
         prun /usr/bin/mount --bind "/$i" "${encrypt_dir}/mnt/$i"
