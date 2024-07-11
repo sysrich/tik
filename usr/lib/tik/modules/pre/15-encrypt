@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright 2024 SUSE LLC
+# SPDX-FileCopyrightText: Copyright 2024 Richard Brown
+
+# Based on the guide documented here: https://en.opensuse.org/index.php?title=Portal:Aeon/Encryption
+# verify_tpm checks which encryption mode the system is capable of, and stores it in ${tik_encrypt_mode} for use by post module
+# "tik_encrypt_mode = 0" - Default Mode
+# "tik_encrypt_mode = 1" - Fallback Mode
+# check_secureboot checks if secureboot is disabled for Fallback mode. Does not do anything if Default Mode.
+# encrypt_notification does nothing if Default Mode. For Fallback mode it provides a single notification containing the following information
+# - That Fallback Mode is enabled because [TPM 2.0 is missing | lacking features]
+# - That they will be prompted to enter a passphrase to encrypt their system later
+# - If Secureboot is disabled they will be encouraged to exit and enable it
+# - For more information go to rewrite https://aeondesktop.org/encrypt
+
+verify_tpm() {
+    # Verify that the system has a TPM 2.0
+    if [ -c /dev/tpmrm0 ]; then
+        # TPM 2.0 found
+        tpm_found=1
+        log "[verify_tpm] TPM 2.0 found, checking for PolicyAuthorizeNV"
+        # Check for command 0x192 PolicyAuthorizeNV
+        if prun tpm2_getcap commands | grep -q 'commandIndex: 0x192'; then
+            # PolicyAuthorizeNV found, set encryption mode to default
+            tik_encrypt_mode=0
+            log "[verify_tpm] PolicyAuthorizeNV support found, Default Mode set"
+        else
+            # PolicyAuthorizeNV not found, set encryption mode to fallback
+            tik_encrypt_mode=1
+            log "[verify_tpm] PolicyAuthorizeNV support not found, Fallback Mode set"
+        fi
+    else
+        # TPM 2.0 not found, set encryption mode to fallback
+        tpm_found=0
+        tik_encrypt_mode=1
+        log "[verify_tpm] TPM 2.0 not found, Fallback Mode set"
+    fi
+}
+
+check_secureboot() {
+    # We only care about Secureboot when using Fallback mode
+    if [ "${tik_encrypt_mode}" == 1 ]; then
+        if ! mokutil --sb-state | grep -q 'enabled'; then
+            secureboot_disabled=1
+            log "[check_secureboot] secureboot disabled, will warn user"
+        else
+            log "[check_secureboot] secureboot enabled"
+        fi
+    fi
+}
+
+encrypt_notification() {
+    local preamble="This system does not meet the Recommended Hardware requirements for ${TIK_OS_NAME}"
+    local postamble="Disk Encryption will use <b>Fallback Mode</b>\nYou will be prompted to create a Passphrase later in the installation\nThis Passphrase will be required to unlock ${TIK_OS_NAME} on every boot\n\nFor more information please visit <tt>https://aeondesktop.org/encrypt</tt>"
+    local secureboot_warning="It is <b>Strongly Recommended</b> to enable SecureBoot\n\nWithout SecureBoot this system will be at increased risk of attacks which could compromise the security of your data\nPlease <b>Cancel Installation</b> and enable SecureBoot\n\nFor more information please visit <tt>https://aeondesktop.org/encrypt</tt>"
+    local reason
+    # We're only going to show a notification when using Fallback mode
+    if [ "${tik_encrypt_mode}" == 1 ]; then
+        [ "${tpm_found}" == 0 ] && reason="No TPM 2.0 chipset found"
+        [ "${tpm_found}" == 1 ] && reason="TPM 2.0 chipset found, but older than v1.38"
+        # Secureboot being disabled makes the notification a Yes/No with the preference being to exit
+        if [ "${secureboot_disabled}" == 1 ]; then
+            log "[encrypt_notification] secureboot warning shown"
+            zenity --width=600 --question --icon=security-low-symbolic --title="Warning" --ok-label="Cancel Installation" --cancel-label="I Understand, Proceed Anyway" --text="${preamble}\n\nReason: <b>SecureBoot Disabled</b> and ${reason}\n\n${secureboot_warning}" && exit 1
+            log "[encrypt_notification] secureboot warning ignored, installation continuing"
+            d --width=600 --warning --icon=security-low-symbolic --text="${postamble}"
+        # Secureboot is enabled, so show a warning
+        else
+            d --width=600 --warning --icon=security-medium-symbolic --text="${preamble}\n\nReason: ${reason}\n\n${postamble}"
+        fi
+        log "[encrypt_notification] user notified that Fallback mode will be used"
+    fi
+
+}
+
+verify_tpm
+check_secureboot
+encrypt_notification

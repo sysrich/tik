@@ -44,16 +44,6 @@ verify_efi() {
     fi
 }
 
-verify_tpm() {
-    # Verify that the system has a TPM 2.0, exit with error if not
-    if [ ! -c /dev/tpmrm0 ]; then
-        # No TPM 2.0 found
-        local error_msg="${TIK_OS_NAME} requires a TPM 2.0 chipset, which is not found on your system.\nPlease check your UEFI settings to see if TPM 2.0 can be enabled."
-        error "${error_msg}"
-    fi
-}
-
 proceedInstall
 verify_efi
-verify_tpm
 checkLaptop
