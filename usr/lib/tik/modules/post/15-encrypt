@@ -105,7 +105,8 @@ finalise_system() {
     set_boot_target
     echo "# Creating initrd" > ${encrypt_pipe}
     # mkinitrd to input crypttab and regenerate PCRs
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -v --esp-path /boot/efi --no-variables mkinitrd
+    # hostonly_cmdline=no set to avoid https://github.com/dracutdevs/dracut/issues/2044
+    prun /usr/bin/chroot ${encrypt_dir}/mnt env hostonly_cmdline=no sdbootutil -v --esp-path /boot/efi --no-variables mkinitrd
     echo "70" > ${encrypt_pipe}
     # FIXME: Debug lsblk output
     lsblk -n -r -o NAME,UUID 1>&2
