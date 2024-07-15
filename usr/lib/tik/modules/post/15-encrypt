@@ -99,13 +99,18 @@ finalise_system() {
     prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
     echo "# Installing boot loader" > ${encrypt_pipe}
     # Populate ESP so we can set the contents as the boot target
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -v --esp-path /boot/efi --no-variables install
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables install
     echo "56" > ${encrypt_pipe}
     # Set the boot target
     set_boot_target
     echo "# Creating initrd" > ${encrypt_pipe}
     # mkinitrd to input crypttab and regenerate PCRs
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -v --esp-path /boot/efi --no-variables mkinitrd
+    # FIXME: debug extra sdbootutil calls to figure out what's going wrong with mkinitrd
+    prun-opt /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv bootloader 1>&2
+    prun-opt /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv needs-update 1>&2
+    prun-opt /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv list-snapshots 1>&2
+    prun-opt /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv is-bootable 1>&2
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables mkinitrd 1>&2
     echo "70" > ${encrypt_pipe}
     # FIXME: Debug lsblk output
     lsblk -n -r -o NAME,UUID 1>&2
