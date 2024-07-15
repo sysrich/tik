@@ -373,6 +373,7 @@ dump_image_repart_image() {
         else
             # repart couldn't find a root partition
             log "[dump_image_repart_image] systemd-repart attempt $attempt_num failed. Trying again..."
+            sleep 1
             # Increment the attempt counter
             attempt_num=$(( attempt_num + 1 ))
         fi
