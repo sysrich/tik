@@ -99,7 +99,7 @@ finalise_system() {
     prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
     # FIXME: Below is here to debug dracut
     rootUUID=$(lsblk -n -r -o UUID /dev/mapper/cr_root)
-    prun /usr/bin/sed -i -e "s,\$, root=UUID=${rootuuid}," ${encrypt_dir}/mnt/etc/kernel/cmdline
+    prun /usr/bin/sed -i -e "s,\$, root=UUID=${rootUUID}," ${encrypt_dir}/mnt/etc/kernel/cmdline
     echo "# Installing boot loader" > ${encrypt_pipe}
     # Populate ESP so we can set the contents as the boot target
     prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -v --esp-path /boot/efi --no-variables install
