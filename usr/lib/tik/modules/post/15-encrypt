@@ -90,7 +90,7 @@ finalise_system() {
     echo "56" > ${encrypt_pipe}
     echo "# Creating initrd" > ${encrypt_pipe}
     # mkinitrd
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables mkinitrd 1>&2
+    prun /usr/bin/chroot ${encrypt_dir}/mnt env hostname_cmdline=no sdbootutil -vv --esp-path /boot/efi --no-variables mkinitrd 1>&2
     echo "70" > ${encrypt_pipe}
     # Explaining the chosen PCR list below
     # - 0 - UEFI firmware, will require recovery key after firmware update
