@@ -7,6 +7,7 @@
 #   - Open the encrypted device, mounting var, etc, boot/efi, tmp, run, sys, dev and proc (open_partition)
 #   - Against the mounted partition, do the following (finalise_system)
 #       - write /etc/kernel/cmdline
+#       - write /etc/crypttab
 #       - update any /etc/fstab lines regarding /boot/efi and replace them with the correct ones for the on disk vfat filesystem
 #       - populate /boot/efi with sdbootutil install & sdbootutil mkinitrd
 #       - populate /etc/sysconfig/fde-tools (so the measurements can be updated on first boot)
@@ -77,22 +78,23 @@ open_partition() {
 }
 
 finalise_system() {
-    echo "# Writing cmdline, fstab, and PCR policy" > ${encrypt_pipe}
-    log "[finalise_system] configuring cmdline, PCR list, fstab and populating ${esppart}"
+    echo "# Writing cmdline, crypttab, fstab, and PCR policy" > ${encrypt_pipe}
+    log "[finalise_system] configuring cmdline, crypttab, PCR list, fstab and populating ${esppart}"
     espUUID=$(lsblk -n -r -o UUID ${esppart})
     prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
     # root=UUID= cmdline definition is a hard requirement of sdbootutil for updating predictions
-    # luks.name=, luks.options= used here to avoid the need for injecting or maintaining a crypttab
     rootUUID=$(lsblk -n -r -o UUID /dev/mapper/aeon_root)
+    prun /usr/bin/sed -i -e "s,\$, root=UUID=${rootUUID}," ${encrypt_dir}/mnt/etc/kernel/cmdline
+    # /etc/crypttab is a hard requirement of sdbootutil for updating predictions
     cryptUUID=$(lsblk -n -r -d -o UUID ${cryptpart})
-    prun /usr/bin/sed -i -e "s,\$, root=UUID=${rootUUID} luks.name=${cryptUUID}=aeon_root luks.options=${cryptUUID}=tpm2-device=auto," ${encrypt_dir}/mnt/etc/kernel/cmdline
+    echo "aeon_root UUID=${cryptUUID} none x-initrd.attach,tpm2-device=auto" | prun tee ${encrypt_dir}/mnt/etc/crypttab
     echo "# Installing boot loader" > ${encrypt_pipe}
     # Populate ESP
     prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2
     echo "56" > ${encrypt_pipe}
     echo "# Creating initrd" > ${encrypt_pipe}
     # mkinitrd done by add-all-kernels
-    prun /usr/bin/chroot ${encrypt_dir}/mnt env hostonly_cmdline=no sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
+    prun /usr/bin/chroot ${encrypt_dir}/mnt env hostonly_l=no sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
     echo "70" > ${encrypt_pipe}
     # Explaining the chosen PCR list below
     # - 0 - UEFI firmware, will require recovery key after firmware update
