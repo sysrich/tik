@@ -108,7 +108,7 @@ finalise_system() {
     # - 2 - Includes option ROMs on pluggable hardware, such as external GPUs. Attaching a GPU to your laptop shouldn't hinder booting.
     # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
     #FIXME: Experiment to create trigger updating predictions on firstboot given the diff between the installer and the installed image
-    prun /usr/bin/cat >${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service << EOF
+    prun /usr/bin/tee ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service << EOF
 [Unit]
 Description=First Boot Update Predictions
 ConditionSecurity=tpm2
