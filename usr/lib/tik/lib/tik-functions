@@ -361,7 +361,6 @@ dump_image_dd() {
     log "[dump_image_dd] deploying ${TIK_IMG_DIR}/${image_source_files}"
     (xzcat ${TIK_IMG_DIR}/${image_source_files} | pv -f -F "# %b copied in %t %r" | prun /usr/bin/dd of=${image_target} bs=64k) 2>&1 | d --progress --title="Installing ${TIK_OS_NAME}" --pulsate --auto-close --no-cancel --width=400
     prun /usr/bin/sync | d --progress --title="Syncing" --pulsate --auto-close --no-cancel --width=400
-    reread_partitiontable
 }
 
 dump_image_repart_image() {
@@ -389,14 +388,12 @@ dump_image_repart_image() {
     else
         error "systemd-repart failed"
     fi
-    reread_partitiontable
 }
 
 dump_image_repart_self() {
     local image_target=$1
     log "[dump_image_repart_self] self-deploying"
     prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
-    reread_partitiontable
 }
 
 set_boot_target() {
