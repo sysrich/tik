@@ -330,7 +330,6 @@ get_img() {
 
 reread_partitiontable() {
     # We've just done a lot to $TIK_INSTALL_DEVICE and it's probably a good idea to make sure the partition table is clearly read so tools like dracut dont get confused.
-    # This might be a candidate for a core tik-function, just here for development purposes
     log "[reread_partitiontable] Re-reading partition table"
     prun /usr/sbin/blockdev --rereadpt ${TIK_INSTALL_DEVICE}
 }
