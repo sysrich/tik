@@ -6,7 +6,7 @@
 # Module expects to find a single ESP partition (find_esp) and a single LUKS2 partition (find_crypt) on $TIK_INSTALL_DEVICE, upon which it will do the following
 #   - Open the encrypted device, mounting var, etc, boot/efi, tmp, run, sys, dev and proc (open_partition)
 #   - Against the mounted partition, do the following (finalise_system)
-#       - write /etc/crypttab
+#       - write /etc/kernel/cmdline
 #       - update any /etc/fstab lines regarding /boot/efi and replace them with the correct ones for the on disk vfat filesystem
 #       - populate /boot/efi with sdbootutil install & sdbootutil mkinitrd
 #       - populate /etc/sysconfig/fde-tools (so the measurements can be updated on first boot)
@@ -59,14 +59,14 @@ find_esp() {
 open_partition() {
     echo "# Opening ${cryptpart}" > ${encrypt_pipe}
     log "[open_partition] opening ${cryptpart} and mounting for chroot"
-    prun /usr/sbin/cryptsetup luksOpen ${cryptpart} cr_root
+    prun /usr/sbin/cryptsetup luksOpen ${cryptpart} aeon_root
     echo "35" > ${encrypt_pipe}
-    prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/cr_root ${encrypt_dir}/mnt
+    prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/aeon_root ${encrypt_dir}/mnt
     for i in proc dev sys 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
         prun /usr/bin/mount --bind "/$i" "${encrypt_dir}/mnt/$i"
     done
-    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/cr_root ${encrypt_dir}/mnt/.snapshots
-    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/cr_root ${encrypt_dir}/mnt/var
+    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/aeon_root ${encrypt_dir}/mnt/.snapshots
+    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/aeon_root ${encrypt_dir}/mnt/var
     etcmountcmd=$(cat ${encrypt_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${encrypt_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${encrypt_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
     eval prun "$etcmountcmd"
     prun /usr/bin/mount ${esppart} ${encrypt_dir}/mnt/boot/efi
@@ -77,23 +77,22 @@ open_partition() {
 }
 
 finalise_system() {
-    echo "# Writing crypttab, fstab, and PCR policy" > ${encrypt_pipe}
-    log "[finalise_system] configuring crypttab, PCR list, fstab and populating ${esppart}"
-    cryptUUID=$(lsblk -n -r -d -o UUID ${cryptpart})
-    # noauto as it's being mounted in the initrd as it's /
-    echo "cr_root UUID=${cryptUUID} none x-initrd.attach,noauto,tpm2-device=auto" | prun tee ${encrypt_dir}/mnt/etc/crypttab
+    echo "# Writing cmdline, fstab, and PCR policy" > ${encrypt_pipe}
+    log "[finalise_system] configuring cmdline, PCR list, fstab and populating ${esppart}"
     espUUID=$(lsblk -n -r -o UUID ${esppart})
     prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
     # root=UUID= cmdline definition is a hard requirement of sdbootutil for updating predictions
-    rootUUID=$(lsblk -n -r -o UUID /dev/mapper/cr_root)
-    prun /usr/bin/sed -i -e "s,\$, root=UUID=${rootUUID}," ${encrypt_dir}/mnt/etc/kernel/cmdline
+    # luks.name=, luks.options= used here to avoid the need for injecting or maintaining a crypttab
+    rootUUID=$(lsblk -n -r -o UUID /dev/mapper/aeon_root)
+    cryptUUID=$(lsblk -n -r -d -o UUID ${cryptpart})
+    prun /usr/bin/sed -i -e "s,\$, root=UUID=${rootUUID} luks.name=${cryptUUID}=aeon_root luks.options=${cryptUUID}=tpm2-device=auto," ${encrypt_dir}/mnt/etc/kernel/cmdline
     echo "# Installing boot loader" > ${encrypt_pipe}
     # Populate ESP
     prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2
     echo "56" > ${encrypt_pipe}
     echo "# Creating initrd" > ${encrypt_pipe}
-    # mkinitrd
-    prun /usr/bin/chroot ${encrypt_dir}/mnt env hostname_cmdline=no  sdbootutil -vv --esp-path /boot/efi --no-variables mkinitrd 1>&2
+    # mkinitrd done by add-all-kernels
+    prun /usr/bin/chroot ${encrypt_dir}/mnt env hostonly_cmdline=no sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
     echo "70" > ${encrypt_pipe}
     # Explaining the chosen PCR list below
     # - 0 - UEFI firmware, will require recovery key after firmware update
@@ -117,7 +116,7 @@ close_partition() {
     done
     prun /usr/bin/umount ${encrypt_dir}/mnt
     prun /usr/bin/rmdir ${encrypt_dir}/mnt
-    prun /usr/sbin/cryptsetup luksClose cr_root
+    prun /usr/sbin/cryptsetup luksClose aeon_root
     echo "77" > ${encrypt_pipe}
 }
 
