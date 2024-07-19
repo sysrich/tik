@@ -36,7 +36,7 @@ crypt_progress() {
 find_crypt() {
     echo "# Finding encrypted partition" > ${encrypt_pipe}
     log "[find_crypt] finding encrypted partition"
-    probe_partitions $TIK_INSTALL_DEVICE "crypto_LUKS"
+    probe_partitions ${TIK_INSTALL_DEVICE} "crypto_LUKS"
     if [ -z "${probedpart}" ]; then
         error "encrypted partition not found"
     fi
@@ -48,7 +48,7 @@ find_crypt() {
 find_esp() {
     echo "# Finding encrypted partition" > ${encrypt_pipe}
     log "[find_esp] finding ESP"
-    probe_partitions $TIK_INSTALL_DEVICE "vfat"
+    probe_partitions ${TIK_INSTALL_DEVICE} "vfat"
     if [ -z "${probedpart}" ]; then
         error "esp partition not found"
     fi
@@ -94,7 +94,7 @@ finalise_system() {
     echo "56" > ${encrypt_pipe}
     echo "# Creating initrd" > ${encrypt_pipe}
     # mkinitrd done by add-all-kernels
-    prun /usr/bin/chroot ${encrypt_dir}/mnt env hostonly_l=no sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
     echo "70" > ${encrypt_pipe}
     # Explaining the chosen PCR list below
     # - 0 - UEFI firmware, will require recovery key after firmware update
@@ -107,6 +107,22 @@ finalise_system() {
     # - 1 - Not only changes with CPU/RAM/hardware changes, but also when UEFI config changes are made, which is too common to lockdown
     # - 2 - Includes option ROMs on pluggable hardware, such as external GPUs. Attaching a GPU to your laptop shouldn't hinder booting.
     # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
+    #FIXME: Experiment to create trigger updating predictions on firstboot given the diff between the installer and the installed image
+    prun /usr/bin/cat >${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service << EOF
+[Unit]
+Description=First Boot Update Predictions
+ConditionSecurity=tpm2
+
+[Service]
+Type=oneshot
+ExecStart=rm /etc/systemd/system/firstboot-update-predictions.service
+ExecStart=rm /etc/systemd/system/default.target.wants/firstboot-update-predictions.service
+ExecStart=/usr/bin/sdbootutil update-predictions
+
+[Install]
+WantedBy=default.target
+EOF
+    prun /usr/bin/ln -s ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service ${encrypt_dir}/mnt/etc/systemd/system/default.target.wants/firstboot-update-predictions.service
     d --warning --text="DEBUG PAUSE"
 }
 
