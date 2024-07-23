@@ -334,6 +334,14 @@ reread_partitiontable() {
     prun /usr/sbin/blockdev --rereadpt ${TIK_INSTALL_DEVICE}
 }
 
+create_keyfile() {
+    # Even if there's no partitions using encryption, systemd-repart will need a key-file defined for the --key-file parameter.
+    tik_keyfile=/tmp/tikkeyfile
+    log "[create_keyfile] Creating keyfile ${tik_keyfile}"
+    prun /usr/bin/dd bs=512 count=4 if=/dev/urandom of=${tik_keyfile} iflag=fullblock
+    prun /usr/bin/chmod 400 ${tik_keyfile}
+}
+
 dump_image() {
     local image_source_files=$1
     local image_target=$2
@@ -369,10 +377,11 @@ dump_image_repart_image() {
     local success=0
     local max_attempts=5
     local attempt_num=1
+    create_keyfile
     log "[dump_image_repart_image] deploying ${TIK_IMG_DIR}/${image_source_files}"
     # systemd-repart doesn't always parse the contents of the image perfectly first time, so retry a few times before declaring it a failure
     while [ ${success} = 0 ] && [ ${attempt_num} -lt ${max_attempts} ]; do
-        prun-opt systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --image=${TIK_IMG_DIR}/${image_source_files} --image-policy=root=unprotected ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
+        prun-opt systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file=${tik_keyfile} --image=${TIK_IMG_DIR}/${image_source_files} --image-policy=root=unprotected ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
         if [ ${retval} -eq 0 ]; then
             success=1
         else
@@ -392,8 +401,9 @@ dump_image_repart_image() {
 
 dump_image_repart_self() {
     local image_target=$1
+    create_keyfile
     log "[dump_image_repart_self] self-deploying"
-    prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
+    prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file=${tik_keyfile} ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
 }
 
 set_boot_target() {

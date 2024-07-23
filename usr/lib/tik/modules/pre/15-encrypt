@@ -70,7 +70,6 @@ encrypt_notification() {
         fi
         log "[encrypt_notification] user notified that Fallback mode will be used"
     fi
-
 }
 
 verify_tpm

@@ -61,7 +61,7 @@ find_esp() {
 open_partition() {
     echo "# Opening ${cryptpart}" > ${encrypt_pipe}
     log "[open_partition] opening ${cryptpart} and mounting for chroot"
-    prun /usr/sbin/cryptsetup luksOpen ${cryptpart} aeon_root
+    prun /usr/sbin/cryptsetup luksOpen --key-file=${tik_keyfile} ${cryptpart} aeon_root
     echo "35" > ${encrypt_pipe}
     prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/aeon_root ${encrypt_dir}/mnt
     for i in proc dev sys 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
@@ -163,7 +163,7 @@ generate_recoveryKey() {
 add_recoveryKey() {
     echo "# Adding recovery key to ${cryptpart}" > ${encrypt_pipe}
     log "[add_recoveryKey] adding recovery key to ${cryptpart}"
-    prun /usr/sbin/cryptsetup luksAddKey --verbose --token-only --batch-mode --force-password "${cryptpart}" <<<"$key"
+    prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"$key"
     echo '{"type":"systemd-recovery","keyslots":["1"]}' | prun /usr/sbin/cryptsetup token import "${cryptpart}"
     echo "100" > ${encrypt_pipe}
 }
@@ -176,8 +176,12 @@ display_recoveryKey() {
 }
 
 add_key() {
-    # TODO remove the key-file and either TPM enrol (Default Mode) or Prompt for a passphrase (Fallback Mode)
-    prun /usr/bin/systemd-cryptenroll --tpm2-device=auto ${cryptpart} <<<"$key"
+    # TODO make this either TPM enrol (Default Mode) or Prompt for a passphrase (Fallback Mode)
+    prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --tpm2-device=auto ${cryptpart}
+    # Slot 0 used by the key-file at enrolment, wipe it
+    prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --wipe-slot=0 ${cryptpart}
+    # We're done with the key-file and made it obsolete, so remove it
+    prun /usr/bin/rm ${tik_keyfile}
 }
 
 crypt_progress &
