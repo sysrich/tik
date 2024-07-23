@@ -342,6 +342,18 @@ create_keyfile() {
     prun /usr/bin/chmod 400 ${tik_keyfile}
 }
 
+wipe_keyfile() {
+    # We made a keyfile and need to clean it up at the end of the installation, possibly wiping it from the newly installed device
+    log "[wipe_keyfile] Deleting keyfile ${tik_keyfile}"
+    probe_partitions ${TIK_INSTALL_DEVICE} "crypto_LUKS"
+    if [ -n "${probedpart}" ]; then
+        # Assumes Slot 0 is always by the key-file at enrolment
+        prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --wipe-slot=0 ${probedpart}
+    fi
+    # We're done with the key-file, so remove it
+    prun /usr/bin/rm ${tik_keyfile}
+}
+
 dump_image() {
     local image_source_files=$1
     local image_target=$2

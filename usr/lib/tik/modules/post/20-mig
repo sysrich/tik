@@ -18,6 +18,12 @@ EOF
 
 
 if [ "${migrate}" == 1 ]; then
+    probe_partitions ${TIK_INSTALL_DEVICE} "crypto_LUKS"
+    if [ -z "${probedpart}" ]; then
+        error "encrypted partition not found"
+    fi
+    prun /usr/sbin/cryptsetup luksOpen --key-file=${tik_keyfile} ${cryptpart} aeon_root
+
     probe_partitions $TIK_INSTALL_DEVICE "btrfs" "/usr/lib/os-release"
 
     if [ -z "${probedpart}" ]; then
@@ -65,4 +71,5 @@ if [ "${migrate}" == 1 ]; then
     done
     prun /usr/bin/umount ${mig_dir}/mnt
     prun /usr/bin/rmdir ${mig_dir}/mnt
+    prun /usr/sbin/cryptsetup luksClose aeon_root
 fi

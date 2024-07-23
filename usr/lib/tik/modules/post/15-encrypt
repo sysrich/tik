@@ -130,7 +130,6 @@ WantedBy=default.target
 EOF
         prun /usr/bin/ln -s ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service ${encrypt_dir}/mnt/etc/systemd/system/default.target.wants/firstboot-update-predictions.service
     fi
-    d --warning --text="DEBUG PAUSE"
 }
 
 close_partition() {
@@ -153,9 +152,9 @@ generate_recoveryKey() {
     [ "${#raw_key[@]}" = 32 ]
     key=""
     for ((i=0;i<"${#raw_key[@]}";++i)); do
-        [ "$i" -gt 0 ] && [ "$((i%4))" -eq 0 ] && key="$key-"
+        [ "$i" -gt 0 ] && [ "$((i%4))" -eq 0 ] && key="${key}-"
         c="${raw_key[i]}"
-        key="$key${modhex[$((c>>4))]}${modhex[$((c&15))]}"
+        key="${key}${modhex[$((c>>4))]}${modhex[$((c&15))]}"
     done
     echo "84" > ${encrypt_pipe}
 }
@@ -163,25 +162,44 @@ generate_recoveryKey() {
 add_recoveryKey() {
     echo "# Adding recovery key to ${cryptpart}" > ${encrypt_pipe}
     log "[add_recoveryKey] adding recovery key to ${cryptpart}"
-    prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"$key"
+    prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"${key}"
     echo '{"type":"systemd-recovery","keyslots":["1"]}' | prun /usr/sbin/cryptsetup token import "${cryptpart}"
     echo "100" > ${encrypt_pipe}
 }
 
 display_recoveryKey() {
+    local defaultmsg="This ${TIK_OS_NAME} system is encrypted and checks its own integrity on every boot\nIn the event of these integrity checks failing, you will need to use the Recovery Key provided below to enter this system\n\nLikely reasons for integrity checks failing include:\n\n• UEFI System Firmware updated\n• Secure Boot changed from enabled or disabled\n• Boot drive was moved to a different computer\n• Disk partitions were changed\n• Boot loader or initrd were altered unexpectedly\n\nIf you are unaware as to why the system is requesting the recovery key, this systems security may have been compromised\nThe best course of action may be to not unlock the disk until you can determine what changed to require the Recovery Key\n\nThis systems Recovery Key is:\n\n        <b><big>${key}</big></b>\n\nPlease save this secret Recovery Key in a secure location\n\n"
+    local fallbackmsg="This ${TIK_OS_NAME} system is encrypted and will require a Passphrase on every boot\n\nYou will be prompted to set the Passphrase on the next screen\n\nIn addition a Recovery Key has been generated:\n\n        <b><big>${key}</big></b>\n\nPlease save this secret Recovery Key in a secure location\nIt may be used to regain access to this system if the other Passphrase becomes lost or forgotten\n\n"
+    local message
+    [ "${tik_encrypt_mode}" == 0 ] && message=${defaultmsg}
+    [ "${tik_encrypt_mode}" == 1 ] && message=${fallbackmsg}
     log "[display_recoveryKey] displaying recovery key"
-    #TODO: Different explanation text depending on default mode or fallback
-    zenity --width=500 --height=500 --no-wrap --warning --title="Encryption Recovery Key" --text="A secret recovery key has been generated for your ${TIK_OS_NAME} installation:\n\n    <b><big>$key</big></b>\n\nPlease save this secret recovery key at a secure location\nIt may be used to regain access to your system if the other credentials have been lost or forgotten\nThe recovery key can be used in place of a password whenever authentication is requested\n\nYou may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode $key -t UTF8i)</span>"
+    zenity --width=500 --height=500 --no-wrap --warning --title="Encryption Recovery Key" --text="${message}You may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode ${key} -t UTF8i)</span>\nFor more information please visit <tt>https://aeondesktop.org/encrypt</tt>"
     log "[display_recoveryKey] recovery key dialogue dismissed"
 }
 
 add_key() {
-    # TODO make this either TPM enrol (Default Mode) or Prompt for a passphrase (Fallback Mode)
-    prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --tpm2-device=auto ${cryptpart}
-    # Slot 0 used by the key-file at enrolment, wipe it
-    prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --wipe-slot=0 ${cryptpart}
-    # We're done with the key-file and made it obsolete, so remove it
-    prun /usr/bin/rm ${tik_keyfile}
+    if [ "${tik_encrypt_mode}" == 1 ]; then
+        log "[add_key] Fallback Mode - Prompting user for passphrase for ${cryptpart}"
+        # Not using 'd' function to avoid logging the password
+        while true
+        do
+            retval=0
+            key="$(zenity --password --title='Set Encryption Passphrase')" || retval=$?
+            case $retval in
+                0)
+                    return 0
+                ;;
+                1|255)
+                    zenity --question --text="Do you really want to quit?" && exit 1
+                ;;
+            esac
+        done
+        prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"${key}"
+    else
+        log "[add_key] Default Mode - Enrolling ${cryptpart} to TPM 2.0"
+        prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --tpm2-device=auto ${cryptpart}
+    fi
 }
 
 crypt_progress &

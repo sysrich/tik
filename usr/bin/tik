@@ -60,4 +60,5 @@ reread_partitiontable
 load_modules "post"
 load_modules "post" "custom"
 
+wipe_keyfile
 set_boot_target
