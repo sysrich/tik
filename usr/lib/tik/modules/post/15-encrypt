@@ -79,6 +79,10 @@ open_partition() {
 }
 
 configure_encryption() {
+    # If Default Mode has been detected, configure crypttab for TPM
+    if [ "${tik_encrypt_mode}" == 0 ]; then
+        crypttab_opts=',tpm2-device=auto'
+    fi
     echo "# Writing cmdline, crypttab, and fstab" > ${encrypt_pipe}
     log "[configure_encryption] configuring cmdline, crypttab, PCR policy, fstab and populating ${esppart}"
     espUUID=$(lsblk -n -r -o UUID ${esppart})
@@ -88,8 +92,7 @@ configure_encryption() {
     prun /usr/bin/sed -i -e "s,\$, root=UUID=${rootUUID}," ${encrypt_dir}/mnt/etc/kernel/cmdline
     # /etc/crypttab is a hard requirement of sdbootutil for updating predictions
     cryptUUID=$(lsblk -n -r -d -o UUID ${cryptpart})
-    # TODO: tpm2-device=auto should only be written if default mode
-    echo "aeon_root UUID=${cryptUUID} none x-initrd.attach,tpm2-device=auto" | prun tee ${encrypt_dir}/mnt/etc/crypttab
+    echo "aeon_root UUID=${cryptUUID} none x-initrd.attach${crypttab_opts}" | prun tee ${encrypt_dir}/mnt/etc/crypttab
     echo "# Installing boot loader" > ${encrypt_pipe}
     # Populate ESP
     prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2
@@ -98,19 +101,20 @@ configure_encryption() {
     # mkinitrd done by add-all-kernels
     prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
     echo "70" > ${encrypt_pipe}
-    # TODO: Split this off to only execute when doing Default Mode
-    # Explaining the chosen PCR list below
-    # - 0 - UEFI firmware, will require recovery key after firmware update
-    # - 4 - Bootloader and drivers, should never recovery key as bootloader should only be updated with new PCR measurements
-    # - 5 - GPT Partition table, should never require recovery key as partition layout shouldn't change
-    # - 7 - SecureBoot state, will require recovery key if SecureBoot is enabled/disabled
-    # - 9 - initrd - should never require recovery key as initrd should only be updated with new PCR measurements
-    echo "FDE_SEAL_PCR_LIST=0,4,5,7,9" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
-    # Explaining why the following PCRs were not used
-    # - 1 - Not only changes with CPU/RAM/hardware changes, but also when UEFI config changes are made, which is too common to lockdown
-    # - 2 - Includes option ROMs on pluggable hardware, such as external GPUs. Attaching a GPU to your laptop shouldn't hinder booting.
-    # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
-    prun /usr/bin/tee ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service << EOF
+    # If Default mode has been detected, configure PCR policy
+    if [ "${tik_encrypt_mode}" == 0 ]; then
+        # Explaining the chosen PCR list below
+        # - 0 - UEFI firmware, will require recovery key after firmware update
+        # - 4 - Bootloader and drivers, should never recovery key as bootloader should only be updated with new PCR measurements
+        # - 5 - GPT Partition table, should never require recovery key as partition layout shouldn't change
+        # - 7 - SecureBoot state, will require recovery key if SecureBoot is enabled/disabled
+        # - 9 - initrd - should never require recovery key as initrd should only be updated with new PCR measurements
+        echo "FDE_SEAL_PCR_LIST=0,4,5,7,9" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
+        # Explaining why the following PCRs were not used
+        # - 1 - Not only changes with CPU/RAM/hardware changes, but also when UEFI config changes are made, which is too common to lockdown
+        # - 2 - Includes option ROMs on pluggable hardware, such as external GPUs. Attaching a GPU to your laptop shouldn't hinder booting.
+        # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
+        prun /usr/bin/tee ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service << EOF
 [Unit]
 Description=First Boot Update Predictions
 ConditionSecurity=tpm2
@@ -124,7 +128,8 @@ ExecStart=/usr/bin/sdbootutil update-predictions
 [Install]
 WantedBy=default.target
 EOF
-    prun /usr/bin/ln -s ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service ${encrypt_dir}/mnt/etc/systemd/system/default.target.wants/firstboot-update-predictions.service
+        prun /usr/bin/ln -s ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service ${encrypt_dir}/mnt/etc/systemd/system/default.target.wants/firstboot-update-predictions.service
+    fi
     d --warning --text="DEBUG PAUSE"
 }
 
@@ -170,6 +175,11 @@ display_recoveryKey() {
     log "[display_recoveryKey] recovery key dialogue dismissed"
 }
 
+add_key() {
+    # TODO remove the key-file and either TPM enrol (Default Mode) or Prompt for a passphrase (Fallback Mode)
+    prun /usr/bin/systemd-cryptenroll --tpm2-device=auto ${cryptpart} <<<"$key"
+}
+
 crypt_progress &
 find_crypt
 find_esp
@@ -179,4 +189,4 @@ close_partition
 generate_recoveryKey
 add_recoveryKey
 display_recoveryKey
-# TODO add_key, which will remove the key-file and either TPM enrol (Default Mode) or Prompt for a passphrase (Fallback Mode)
+add_key
