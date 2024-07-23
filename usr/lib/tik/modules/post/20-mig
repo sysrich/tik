@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: Copyright 2024 Richard Brown
 
 writemigdesktop() {
-    prun-opt /usr/bin/cat >> $1/.config/autostart/aeon-mig-firstboot.desktop << "EOF"
+    prun-opt /usr/bin/tee $1/.config/autostart/aeon-mig-firstboot.desktop << "EOF"
 [Desktop Entry]
 Name=Aeon Migration FirstBoot Setup
 Comment=Sets up Aeon Correctly On FirstBoot after Migration

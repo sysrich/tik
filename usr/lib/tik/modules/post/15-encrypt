@@ -5,7 +5,7 @@
 # Module does not actually do any encryption, but is intended to finish installation of an encrypted image, such as one deployed via systemd-repart
 # Module expects to find a single ESP partition (find_esp) and a single LUKS2 partition (find_crypt) on $TIK_INSTALL_DEVICE, upon which it will do the following
 #   - Open the encrypted device, mounting var, etc, boot/efi, tmp, run, sys, dev and proc (open_partition)
-#   - Against the mounted partition, do the following (finalise_system)
+#   - Against the mounted partition, do the following (configure_encryption)
 #       - write /etc/kernel/cmdline
 #       - write /etc/crypttab
 #       - update any /etc/fstab lines regarding /boot/efi and replace them with the correct ones for the on disk vfat filesystem
@@ -15,7 +15,8 @@
 #   - Generate a recovery key (generate_recoveryKey)
 #   - Add recovery key to device and identify it as a systemd-recovery key (add_recoveryKey)
 #   - Display the recovery key to the user (display_recoveryKey)
-# It is expected the LUKS2 partition is already bound to the systems TPM2.0 chip (such as done via systemd-repart) and the TPM2 key is the only populated keyslot.
+#   - Remove the temporary key-file and replace it either with TPM enrollment or a user-supplied passphrase (add_key)
+# It is expected the LUKS2 partition is already encrypted with a key-file in the only populated keyslot.
 
 encrypt_dir=/var/lib/tik/encrypt
 encrypt_pipe=/tmp/encryptpipe
@@ -28,7 +29,7 @@ fi
 
 crypt_progress() {
     log "[crypt_progress] Monitoring encryption progress"
-    (tail -f ${encrypt_pipe}) | d --progress --title="Finalising Encryption" --auto-close --no-cancel --width=400
+    (tail -f ${encrypt_pipe}) | d --progress --title="Configuring Encryption" --auto-close --no-cancel --width=400
     rm ${encrypt_pipe}
     log "[crypt_progress] Encryption progress reached 100%"
 }
@@ -77,9 +78,9 @@ open_partition() {
     echo "42" > ${encrypt_pipe}
 }
 
-finalise_system() {
-    echo "# Writing cmdline, crypttab, fstab, and PCR policy" > ${encrypt_pipe}
-    log "[finalise_system] configuring cmdline, crypttab, PCR list, fstab and populating ${esppart}"
+configure_encryption() {
+    echo "# Writing cmdline, crypttab, and fstab" > ${encrypt_pipe}
+    log "[configure_encryption] configuring cmdline, crypttab, PCR policy, fstab and populating ${esppart}"
     espUUID=$(lsblk -n -r -o UUID ${esppart})
     prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
     # root=UUID= cmdline definition is a hard requirement of sdbootutil for updating predictions
@@ -87,6 +88,7 @@ finalise_system() {
     prun /usr/bin/sed -i -e "s,\$, root=UUID=${rootUUID}," ${encrypt_dir}/mnt/etc/kernel/cmdline
     # /etc/crypttab is a hard requirement of sdbootutil for updating predictions
     cryptUUID=$(lsblk -n -r -d -o UUID ${cryptpart})
+    # TODO: tpm2-device=auto should only be written if default mode
     echo "aeon_root UUID=${cryptUUID} none x-initrd.attach,tpm2-device=auto" | prun tee ${encrypt_dir}/mnt/etc/crypttab
     echo "# Installing boot loader" > ${encrypt_pipe}
     # Populate ESP
@@ -96,6 +98,7 @@ finalise_system() {
     # mkinitrd done by add-all-kernels
     prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
     echo "70" > ${encrypt_pipe}
+    # TODO: Split this off to only execute when doing Default Mode
     # Explaining the chosen PCR list below
     # - 0 - UEFI firmware, will require recovery key after firmware update
     # - 4 - Bootloader and drivers, should never recovery key as bootloader should only be updated with new PCR measurements
@@ -107,7 +110,6 @@ finalise_system() {
     # - 1 - Not only changes with CPU/RAM/hardware changes, but also when UEFI config changes are made, which is too common to lockdown
     # - 2 - Includes option ROMs on pluggable hardware, such as external GPUs. Attaching a GPU to your laptop shouldn't hinder booting.
     # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
-    #FIXME: Experiment to create trigger updating predictions on firstboot given the diff between the installer and the installed image
     prun /usr/bin/tee ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service << EOF
 [Unit]
 Description=First Boot Update Predictions
@@ -163,6 +165,7 @@ add_recoveryKey() {
 
 display_recoveryKey() {
     log "[display_recoveryKey] displaying recovery key"
+    #TODO: Different explanation text depending on default mode or fallback
     zenity --width=500 --height=500 --no-wrap --warning --title="Encryption Recovery Key" --text="A secret recovery key has been generated for your ${TIK_OS_NAME} installation:\n\n    <b><big>$key</big></b>\n\nPlease save this secret recovery key at a secure location\nIt may be used to regain access to your system if the other credentials have been lost or forgotten\nThe recovery key can be used in place of a password whenever authentication is requested\n\nYou may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode $key -t UTF8i)</span>"
     log "[display_recoveryKey] recovery key dialogue dismissed"
 }
@@ -171,8 +174,9 @@ crypt_progress &
 find_crypt
 find_esp
 open_partition
-finalise_system
+configure_encryption
 close_partition
 generate_recoveryKey
 add_recoveryKey
 display_recoveryKey
+# TODO add_key, which will remove the key-file and either TPM enrol (Default Mode) or Prompt for a passphrase (Fallback Mode)
