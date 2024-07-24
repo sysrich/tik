@@ -39,7 +39,7 @@ verify_efi() {
     # Verify that the system was booted with EFI, exit with error if not
     if [ ! -d /sys/firmware/efi ]; then
         # System was not booted with EFI
-        local error_msg="openSUSE Aeon requires UEFI mode, which is not found on your system.\nPlease check your BIOS settings to see if UEFI can be enabled."
+        local error_msg="${TIK_OS_NAME} requires UEFI mode, which is not found on your system.\nPlease check your BIOS settings to see if UEFI can be enabled."
         error "${error_msg}"
     fi
 }

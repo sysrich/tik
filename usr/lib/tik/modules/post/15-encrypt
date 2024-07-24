@@ -1,0 +1,218 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright 2024 SUSE LLC
+# SPDX-FileCopyrightText: Copyright 2024 Richard Brown
+
+# Module does not actually do any encryption, but is intended to finish installation of an encrypted image, such as one deployed via systemd-repart
+# Module expects to find a single ESP partition (find_esp) and a single LUKS2 partition (find_crypt) on $TIK_INSTALL_DEVICE, upon which it will do the following
+#   - Open the encrypted device, mounting var, etc, boot/efi, tmp, run, sys, dev and proc (open_partition)
+#   - Against the mounted partition, do the following (configure_encryption)
+#       - write /etc/kernel/cmdline
+#       - write /etc/crypttab
+#       - update any /etc/fstab lines regarding /boot/efi and replace them with the correct ones for the on disk vfat filesystem
+#       - populate /boot/efi with sdbootutil install & sdbootutil mkinitrd
+#       - populate /etc/sysconfig/fde-tools (so the measurements can be updated on first boot)
+#   - Close the partition (close_partition)
+#   - Generate a recovery key (generate_recoveryKey)
+#   - Add recovery key to device and identify it as a systemd-recovery key (add_recoveryKey)
+#   - Display the recovery key to the user (display_recoveryKey)
+#   - Remove the temporary key-file and replace it either with TPM enrollment or a user-supplied passphrase (add_key)
+# It is expected the LUKS2 partition is already encrypted with a key-file in the only populated keyslot.
+
+encrypt_dir=/var/lib/tik/encrypt
+encrypt_pipe=/tmp/encryptpipe
+if [ ! -d ${encrypt_dir}/mnt ]; then
+    prun /usr/bin/mkdir -p ${encrypt_dir}/mnt
+fi
+if [ ! -p ${encrypt_pipe} ]; then
+    mkfifo ${encrypt_pipe}
+fi
+
+crypt_progress() {
+    log "[crypt_progress] Monitoring encryption progress"
+    (tail -f ${encrypt_pipe}) | d --progress --title="Configuring Encryption" --auto-close --no-cancel --width=400
+    rm ${encrypt_pipe}
+    log "[crypt_progress] Encryption progress reached 100%"
+}
+
+find_crypt() {
+    echo "# Finding encrypted partition" > ${encrypt_pipe}
+    log "[find_crypt] finding encrypted partition"
+    probe_partitions ${TIK_INSTALL_DEVICE} "crypto_LUKS"
+    if [ -z "${probedpart}" ]; then
+        error "encrypted partition not found"
+    fi
+    cryptpart=${probedpart}
+    log "[find_crypt] found ${cryptpart}"
+    echo "14" > ${encrypt_pipe}
+}
+
+find_esp() {
+    echo "# Finding encrypted partition" > ${encrypt_pipe}
+    log "[find_esp] finding ESP"
+    probe_partitions ${TIK_INSTALL_DEVICE} "vfat"
+    if [ -z "${probedpart}" ]; then
+        error "esp partition not found"
+    fi
+    esppart=${probedpart}
+    log "[find_esp] found ${esppart}"
+    echo "28" > ${encrypt_pipe}
+}
+
+open_partition() {
+    echo "# Opening ${cryptpart}" > ${encrypt_pipe}
+    log "[open_partition] opening ${cryptpart} and mounting for chroot"
+    prun /usr/sbin/cryptsetup luksOpen --key-file=${tik_keyfile} ${cryptpart} aeon_root
+    echo "35" > ${encrypt_pipe}
+    prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/aeon_root ${encrypt_dir}/mnt
+    for i in proc dev sys 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
+        prun /usr/bin/mount --bind "/$i" "${encrypt_dir}/mnt/$i"
+    done
+    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/aeon_root ${encrypt_dir}/mnt/.snapshots
+    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/aeon_root ${encrypt_dir}/mnt/var
+    etcmountcmd=$(cat ${encrypt_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${encrypt_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${encrypt_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
+    eval prun "$etcmountcmd"
+    prun /usr/bin/mount ${esppart} ${encrypt_dir}/mnt/boot/efi
+    prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/run"
+    prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/tmp"
+    prun /usr/bin/mount -t securityfs securityfs "${encrypt_dir}/mnt/sys/kernel/security"
+    echo "42" > ${encrypt_pipe}
+}
+
+configure_encryption() {
+    # If Default Mode has been detected, configure crypttab for TPM
+    if [ "${tik_encrypt_mode}" == 0 ]; then
+        crypttab_opts=',tpm2-device=auto'
+    fi
+    echo "# Writing cmdline, crypttab, and fstab" > ${encrypt_pipe}
+    log "[configure_encryption] configuring cmdline, crypttab, PCR policy, fstab and populating ${esppart}"
+    espUUID=$(lsblk -n -r -o UUID ${esppart})
+    prun /usr/bin/gawk -v espUUID=$espUUID -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' ${encrypt_dir}/mnt/etc/fstab
+    # root=UUID= cmdline definition is a hard requirement of sdbootutil for updating predictions
+    rootUUID=$(lsblk -n -r -o UUID /dev/mapper/aeon_root)
+    prun /usr/bin/sed -i -e "s,\$, root=UUID=${rootUUID}," ${encrypt_dir}/mnt/etc/kernel/cmdline
+    # /etc/crypttab is a hard requirement of sdbootutil for updating predictions
+    cryptUUID=$(lsblk -n -r -d -o UUID ${cryptpart})
+    echo "aeon_root UUID=${cryptUUID} none x-initrd.attach${crypttab_opts}" | prun tee ${encrypt_dir}/mnt/etc/crypttab
+    echo "# Installing boot loader" > ${encrypt_pipe}
+    # Populate ESP
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2
+    echo "56" > ${encrypt_pipe}
+    echo "# Creating initrd" > ${encrypt_pipe}
+    # FIXME: Dracut gets confused by previous installations on occasion with the default config, override the problematic option temporarily
+    /usr/bin/echo 'hostonly_cmdline="no"' | prun tee ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
+    # mkinitrd done by add-all-kernels
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
+    # FIXME: Dracut gets confused by previous installations on occasion with the default config, remove override now initrd done
+    prun /usr/bin/rm ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
+    echo "70" > ${encrypt_pipe}
+    # If Default mode has been detected, configure PCR policy
+    if [ "${tik_encrypt_mode}" == 0 ]; then
+        # Explaining the chosen PCR list below
+        # - 0 - UEFI firmware, will require recovery key after firmware update
+        # - 4 - Bootloader and drivers, should never recovery key as bootloader should only be updated with new PCR measurements
+        # - 5 - GPT Partition table, should never require recovery key as partition layout shouldn't change
+        # - 7 - SecureBoot state, will require recovery key if SecureBoot is enabled/disabled
+        # - 9 - initrd - should never require recovery key as initrd should only be updated with new PCR measurements
+        echo "FDE_SEAL_PCR_LIST=0,4,5,7,9" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
+        # Explaining why the following PCRs were not used
+        # - 1 - Not only changes with CPU/RAM/hardware changes, but also when UEFI config changes are made, which is too common to lockdown
+        # - 2 - Includes option ROMs on pluggable hardware, such as external GPUs. Attaching a GPU to your laptop shouldn't hinder booting.
+        # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
+        prun /usr/bin/tee ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service << EOF
+[Unit]
+Description=First Boot Update Predictions
+ConditionSecurity=tpm2
+
+[Service]
+Type=oneshot
+ExecStart=rm /etc/systemd/system/firstboot-update-predictions.service
+ExecStart=rm /etc/systemd/system/default.target.wants/firstboot-update-predictions.service
+ExecStart=/usr/bin/sdbootutil update-predictions
+
+[Install]
+WantedBy=default.target
+EOF
+        prun /usr/bin/ln -s ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service ${encrypt_dir}/mnt/etc/systemd/system/default.target.wants/firstboot-update-predictions.service
+    fi
+}
+
+close_partition() {
+    echo "# Closing ${cryptpart}" > ${encrypt_pipe}
+    log "[close_partition] unmounting and closing ${cryptpart}"
+    for i in proc dev run tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' 'sys/fs/cgroup' sys; do
+        prun /usr/bin/umount "${encrypt_dir}/mnt/$i"
+    done
+    prun /usr/bin/umount ${encrypt_dir}/mnt
+    prun /usr/bin/rmdir ${encrypt_dir}/mnt
+    prun /usr/sbin/cryptsetup luksClose aeon_root
+    echo "77" > ${encrypt_pipe}
+}
+
+generate_recoveryKey() {
+    echo "# Generating recovery key" > ${encrypt_pipe}
+    log "[generate_recoveryKey] generating recovery key"
+    modhex=('c' 'b' 'd' 'e' 'f' 'g' 'h' 'i' 'j' 'k' 'l' 'n' 'r' 't' 'u' 'v')
+    mapfile -t raw_key < <(hexdump -v --format '1/1 "%u\n"' -n 32 /dev/random)
+    [ "${#raw_key[@]}" = 32 ]
+    key=""
+    for ((i=0;i<"${#raw_key[@]}";++i)); do
+        [ "$i" -gt 0 ] && [ "$((i%4))" -eq 0 ] && key="${key}-"
+        c="${raw_key[i]}"
+        key="${key}${modhex[$((c>>4))]}${modhex[$((c&15))]}"
+    done
+    echo "84" > ${encrypt_pipe}
+}
+
+add_recoveryKey() {
+    echo "# Adding recovery key to ${cryptpart}" > ${encrypt_pipe}
+    log "[add_recoveryKey] adding recovery key to ${cryptpart}"
+    prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"${key}"
+    echo '{"type":"systemd-recovery","keyslots":["1"]}' | prun /usr/sbin/cryptsetup token import "${cryptpart}"
+    echo "100" > ${encrypt_pipe}
+}
+
+display_recoveryKey() {
+    local defaultmsg="This ${TIK_OS_NAME} system is encrypted and checks its own integrity on every boot\nIn the event of these integrity checks failing, you will need to use the Recovery Key provided below to enter this system\n\nLikely reasons for integrity checks failing include:\n\n• UEFI System Firmware updated\n• Secure Boot changed from enabled or disabled\n• Boot drive was moved to a different computer\n• Disk partitions were changed\n• Boot loader or initrd were altered unexpectedly\n\nIf you are unaware as to why the system is requesting the recovery key, this systems security may have been compromised\nThe best course of action may be to not unlock the disk until you can determine what changed to require the Recovery Key\n\nThis systems Recovery Key is:\n\n        <b><big>${key}</big></b>\n\nPlease save this secret Recovery Key in a secure location\n\n"
+    local fallbackmsg="This ${TIK_OS_NAME} system is encrypted and will require a Passphrase on every boot\n\nYou will be prompted to set the Passphrase on the next screen\n\nIn addition a Recovery Key has been generated:\n\n        <b><big>${key}</big></b>\n\nPlease save this secret Recovery Key in a secure location\nIt may be used to regain access to this system if the other Passphrase becomes lost or forgotten\n\n"
+    local message
+    [ "${tik_encrypt_mode}" == 0 ] && message=${defaultmsg}
+    [ "${tik_encrypt_mode}" == 1 ] && message=${fallbackmsg}
+    log "[display_recoveryKey] displaying recovery key"
+    zenity --width=500 --height=500 --no-wrap --warning --title="Encryption Recovery Key" --text="${message}You may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode ${key} -t UTF8i)</span>\nFor more information please visit <tt>https://aeondesktop.org/encrypt</tt>"
+    log "[display_recoveryKey] recovery key dialogue dismissed"
+}
+
+add_key() {
+    if [ "${tik_encrypt_mode}" == 1 ]; then
+        log "[add_key] Fallback Mode - Prompting user for passphrase for ${cryptpart}"
+        # Not using 'd' function to avoid logging the password
+        while true
+        do
+            retval=0
+            key="$(zenity --password --title='Set Encryption Passphrase')" || retval=$?
+            case $retval in
+                0)
+                    prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"${key}"
+                    return 0
+                ;;
+                1|255)
+                    zenity --question --text="Do you really want to quit?" && exit 1
+                ;;
+            esac
+        done
+    else
+        log "[add_key] Default Mode - Enrolling ${cryptpart} to TPM 2.0"
+        prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --tpm2-device=auto ${cryptpart} > >(d --progress --title="Finalising Encryption" --text="Enrolling to TPM 2.0" --pulsate --auto-close --no-cancel --width=400)
+    fi
+}
+
+crypt_progress &
+find_crypt
+find_esp
+open_partition
+configure_encryption
+close_partition
+generate_recoveryKey
+add_recoveryKey
+display_recoveryKey
+add_key
