@@ -202,7 +202,7 @@ add_key() {
         prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"${key}"
     else
         log "[add_key] Default Mode - Enrolling ${cryptpart} to TPM 2.0"
-        prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --tpm2-device=auto ${cryptpart}
+        prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --tpm2-device=auto ${cryptpart} > >(d --progress --title="Finalising Encryption" --text="Enrolling to TPM 2.0" --pulsate --auto-close --no-cancel --width=400)
     fi
 }
 
