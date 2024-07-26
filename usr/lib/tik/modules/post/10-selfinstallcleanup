@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright 2024 SUSE LLC
+# SPDX-FileCopyrightText: Copyright 2024 Richard Brown
+
+# Module cleans up the following left overs from deploying via Self Install which cannot be avoided by using repart.d ExcludeFiles=
+# - Removes wheel group assignment for tik user
+# - Removes autologin for tik user
+# - Removes tik user
+# - Runs glib-compile-schemas (because gschema override was blocked by ExcludeFiles=)
+
+cleanup_dir=/var/lib/tik/cleanup
+probe_partitions ${TIK_INSTALL_DEVICE} "crypto_LUKS"
+if [ -z "${probedpart}" ]; then
+    error "encrypted partition not found"
+fi
+cryptpart=${probedpart}
+
+prun /usr/sbin/cryptsetup luksOpen --key-file=${tik_keyfile} ${cryptpart} aeon_root
+
+# Mount everything ready for chroot, probably overkill. Avoid mounting /etc as we want to edit the config on the host
+prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/aeon_root ${cleanup_dir}/mnt
+for i in proc dev sys 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
+    prun /usr/bin/mount --bind "/$i" "${cleanup_dir}/mnt/$i"
+done
+prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/aeon_root ${cleanup_dir}/mnt/.snapshots
+prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/aeon_root ${cleanup_dir}/mnt/var
+prun /usr/bin/mount -t tmpfs tmpfs "${cleanup_dir}/mnt/run"
+prun /usr/bin/mount -t tmpfs tmpfs "${cleanup_dir}/mnt/tmp"
+prun /usr/bin/mount -t securityfs securityfs "${cleanup_dir}/mnt/sys/kernel/security"
+
+# Make the filesystem readwrite reluctantly
+prun /usr/sbin/btrfs property set -f -ts ${cleanup_dir}/mnt ro false
+
+# Cleanup remainder of changes needed for tik
+prun /usr/bin/chroot ${cleanup_dir}/mnt usermod -rG wheel tik
+prun /usr/bin/chroot ${cleanup_dir}/mnt sed -i 's/DISPLAYMANAGER_AUTOLOGIN="tik"/DISPLAYMANAGER_AUTOLOGIN=""/' /etc/sysconfig/displaymanager
+prun /usr/bin/chroot ${cleanup_dir}/mnt userdel -f tik
+prun /usr/bin/chroot ${cleanup_dir}/mnt glib-compile-schemas /usr/share/glib-2.0/schemas/
+
+# Make the filesystem readonly again
+prun /usr/sbin/btrfs property set -f -ts ${cleanup_dir}/mnt ro true
+
+# Unmount everything we previously mounted
+for i in proc dev run tmp var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' 'sys/fs/cgroup' sys; do
+    prun /usr/bin/umount "${cleanup_dir}/mnt/$i"
+done
+prun /usr/bin/umount ${cleanup_dir}/mnt
+prun /usr/bin/rmdir ${cleanup_dir}/mnt
+prun /usr/sbin/cryptsetup luksClose aeon_root

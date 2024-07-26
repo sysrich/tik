@@ -22,6 +22,7 @@ if [ "${migrate}" == 1 ]; then
     if [ -z "${probedpart}" ]; then
         error "encrypted partition not found"
     fi
+    cryptpart=${probedpart}
     prun /usr/sbin/cryptsetup luksOpen --key-file=${tik_keyfile} ${cryptpart} aeon_root
 
     probe_partitions $TIK_INSTALL_DEVICE "btrfs" "/usr/lib/os-release"
