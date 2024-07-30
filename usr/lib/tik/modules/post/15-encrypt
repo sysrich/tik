@@ -202,7 +202,7 @@ add_key() {
     else
         open_partition
         log "[add_key] Generating Predictions"
-        prun /usr/bin/chroot ${encrypt_dir}/mnt SDB_ADD_INITIAL_COMPONENT=1 sdbootutil -v update-predictions > >(d --progress --title="Finalising Encryption" --text="Generating Predictions" --pulsate --auto-close --no-cancel --width=400)
+        prun /usr/bin/chroot ${encrypt_dir}/mnt env SDB_ADD_INITIAL_COMPONENT=1 sdbootutil -v update-predictions > >(d --progress --title="Finalising Encryption" --text="Generating Predictions" --pulsate --auto-close --no-cancel --width=400)
         log "[add_key] Default Mode - Enrolling ${cryptpart} to TPM 2.0"
         prun /usr/bin/chroot ${encrypt_dir}/mnt systemd-cryptenroll --unlock-key-file=${tik_keyfile} --tpm2-device=auto ${cryptpart} > >(d --progress --title="Finalising Encryption" --text="Enrolling to TPM 2.0" --pulsate --auto-close --no-cancel --width=400)
         close_partition
