@@ -64,7 +64,7 @@ open_partition() {
     prun /usr/sbin/cryptsetup luksOpen --key-file=${tik_keyfile} ${cryptpart} aeon_root
     echo "35" > ${encrypt_pipe}
     prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/aeon_root ${encrypt_dir}/mnt
-    for i in proc dev sys 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
+    for i in proc dev sys tmp 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
         prun /usr/bin/mount --bind "/$i" "${encrypt_dir}/mnt/$i"
     done
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/aeon_root ${encrypt_dir}/mnt/.snapshots
@@ -73,7 +73,6 @@ open_partition() {
     eval prun "$etcmountcmd"
     prun /usr/bin/mount ${esppart} ${encrypt_dir}/mnt/boot/efi
     prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/run"
-    prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/tmp"
     prun /usr/bin/mount -t securityfs securityfs "${encrypt_dir}/mnt/sys/kernel/security"
     echo "42" > ${encrypt_pipe}
 }
