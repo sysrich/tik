@@ -143,7 +143,6 @@ close_partition() {
         prun /usr/bin/umount "${encrypt_dir}/mnt/$i"
     done
     prun /usr/bin/umount ${encrypt_dir}/mnt
-    prun /usr/bin/rmdir ${encrypt_dir}/mnt
     prun /usr/sbin/cryptsetup luksClose aeon_root
     echo "77" > ${encrypt_pipe}
 }
