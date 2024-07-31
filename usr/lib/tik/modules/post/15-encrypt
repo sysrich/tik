@@ -64,7 +64,7 @@ open_partition() {
     prun /usr/sbin/cryptsetup luksOpen --key-file=${tik_keyfile} ${cryptpart} aeon_root
     echo "35" > ${encrypt_pipe}
     prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/aeon_root ${encrypt_dir}/mnt
-    for i in proc dev sys 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
+    for i in proc dev sys tmp 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
         prun /usr/bin/mount --bind "/$i" "${encrypt_dir}/mnt/$i"
     done
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/aeon_root ${encrypt_dir}/mnt/.snapshots
@@ -73,7 +73,6 @@ open_partition() {
     eval prun "$etcmountcmd"
     prun /usr/bin/mount ${esppart} ${encrypt_dir}/mnt/boot/efi
     prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/run"
-    prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/tmp"
     prun /usr/bin/mount -t securityfs securityfs "${encrypt_dir}/mnt/sys/kernel/security"
     echo "42" > ${encrypt_pipe}
 }
@@ -133,6 +132,14 @@ ExecStart=/usr/bin/sdbootutil update-predictions
 WantedBy=default.target
 EOF
         prun /usr/bin/ln -s ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service ${encrypt_dir}/mnt/etc/systemd/system/default.target.wants/firstboot-update-predictions.service
+        log "[configure_encryption] Generating Predictions"
+        echo "# Generating TPM Predictions" > ${encrypt_pipe}
+        prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv update-predictions
+        echo "73" > ${encrypt_pipe}
+        log "[configure_encryption] Default Mode - Enrolling ${cryptpart} to TPM 2.0"
+        echo "# Enrolling to TPM" > ${encrypt_pipe}
+        prun /usr/bin/chroot ${encrypt_dir}/mnt systemd-cryptenroll --unlock-key-file=${tik_keyfile} --tpm2-device=auto ${cryptpart}
+        echo "76" > ${encrypt_pipe}
     fi
 }
 
@@ -143,7 +150,6 @@ close_partition() {
         prun /usr/bin/umount "${encrypt_dir}/mnt/$i"
     done
     prun /usr/bin/umount ${encrypt_dir}/mnt
-    prun /usr/bin/rmdir ${encrypt_dir}/mnt
     prun /usr/sbin/cryptsetup luksClose aeon_root
     echo "77" > ${encrypt_pipe}
 }
@@ -200,9 +206,6 @@ add_key() {
                 ;;
             esac
         done
-    else
-        log "[add_key] Default Mode - Enrolling ${cryptpart} to TPM 2.0"
-        prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --tpm2-device=auto ${cryptpart} > >(d --progress --title="Finalising Encryption" --text="Enrolling to TPM 2.0" --pulsate --auto-close --no-cancel --width=400)
     fi
 }
 
