@@ -179,17 +179,18 @@ add_recoveryKey() {
 
 display_recoveryKey() {
     local defaultmsg="This ${TIK_OS_NAME} system is encrypted and checks its own integrity on every boot\nIn the event of these integrity checks failing, you will need to use the Recovery Key provided below to enter this system\n\nLikely reasons for integrity checks failing include:\n\n• UEFI System Firmware updated\n• Secure Boot changed from enabled or disabled\n• Boot drive was moved to a different computer\n• Disk partitions were changed\n• Boot loader or initrd were altered unexpectedly\n\nIf you are unaware as to why the system is requesting the recovery key, this systems security may have been compromised\nThe best course of action may be to not unlock the disk until you can determine what changed to require the Recovery Key\n\nThis systems Recovery Key is:\n\n        <b><big>${key}</big></b>\n\nPlease save this secret Recovery Key in a secure location\n\n"
-    local fallbackmsg="This ${TIK_OS_NAME} system is encrypted and will require a Passphrase on every boot\n\nYou will be prompted to set the Passphrase on the next screen\n\nIn addition a Recovery Key has been generated:\n\n        <b><big>${key}</big></b>\n\nPlease save this secret Recovery Key in a secure location\nIt may be used to regain access to this system if the other Passphrase becomes lost or forgotten\n\n"
+    local fallbackmsg="In addition to your Passphrase a Recovery Key has been generated:\n\n        <b><big>${key}</big></b>\n\nPlease save this secret Recovery Key in a secure location\nIt may be used to regain access to this system if the other Passphrase becomes lost or forgotten\n\n"
     local message
     [ "${tik_encrypt_mode}" == 0 ] && message=${defaultmsg}
     [ "${tik_encrypt_mode}" == 1 ] && message=${fallbackmsg}
     log "[display_recoveryKey] displaying recovery key"
-    zenity --width=500 --height=500 --no-wrap --warning --title="Encryption Recovery Key" --text="${message}You may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode ${key} -t UTF8i)</span>\nFor more information please visit <tt>https://aeondesktop.org/encrypt</tt>"
+    zenity --width=500 --height=500 --no-wrap --warning --icon=security-high-symbolic --title="Encryption Recovery Key" --text="${message}You may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode ${key} -t UTF8i)</span>\nFor more information please visit <tt>https://aeondesktop.org/encrypt</tt>"
     log "[display_recoveryKey] recovery key dialogue dismissed"
 }
 
 add_key() {
     if [ "${tik_encrypt_mode}" == 1 ]; then
+        d --width=500 --height=300 --no-wrap --warning --icon=security-high-symbolic --title="Set Encryption Passphrase" --text="This ${TIK_OS_NAME} system is encrypted and will require a Passphrase on every boot\n\nYou will be prompted to set the Passphrase on the next screen\n\nFor more information please visit <tt>https://aeondesktop.org/encrypt</tt>"
         log "[add_key] Fallback Mode - Prompting user for passphrase for ${cryptpart}"
         # Not using 'd' function to avoid logging the password
         while true
@@ -215,7 +216,7 @@ find_esp
 open_partition
 configure_encryption
 close_partition
+add_key
 generate_recoveryKey
 add_recoveryKey
 display_recoveryKey
-add_key
