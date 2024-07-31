@@ -173,7 +173,7 @@ add_recoveryKey() {
     echo "# Adding recovery key to ${cryptpart}" > ${encrypt_pipe}
     log "[add_recoveryKey] adding recovery key to ${cryptpart}"
     prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"${key}"
-    echo '{"type":"systemd-recovery","keyslots":["1"]}' | prun /usr/sbin/cryptsetup token import "${cryptpart}"
+    echo '{"type":"systemd-recovery","keyslots":["2"]}' | prun /usr/sbin/cryptsetup token import "${cryptpart}"
     echo "100" > ${encrypt_pipe}
 }
 
