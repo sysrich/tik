@@ -24,23 +24,13 @@ In addition to the above workflow, tik supports the following additional feature
 
 tik is designed to deploy three types of images.
 
-- Block images
 - systemd-repart "bundles"
 - systemd-repart "self deployment"
+- Block images
 
 In all three cases tik should not care about the contents of the disk image, which potentially could be of any Operating System built using any toolset (eg kiwi, mkosi, etc)
 
 Features like expanding the partitions to fill the disk are expected to be handled by tools like systemd-repart on the booting of the deployed OS, not by tik (though in theory optional extensions could be written to implement this)
-
-### Block images
-
-tik can deploy a block-based disk images. These expected to be raw.xz files containing
-
-- the full partition table
-- a UEFI ESP/EFI partition
-- 1 (or more) OS partitions
-
-By default these files should be located in `/usr/lib/tik/img` but can be relocated by redefining the `TIK_IMG_DIR` parameter in your tik config
 
 ### systemd-repart "bundles"
 
@@ -70,6 +60,16 @@ The `repart.d` configuration is then read and applied to the target storage devi
 It is expected that the `repart.d` configuration will use `CopyBlocks=auto` to automatically map the contents from the booted tik USB stick to the equivalent new partitions on the target storage device.
 
 This feature was introduced in tik v1.2
+
+### Block images
+
+tik can deploy a block-based disk images. These expected to be raw.xz files containing
+
+- the full partition table
+- a UEFI ESP/EFI partition
+- 1 (or more) OS partitions
+
+By default these files should be located in `/usr/lib/tik/img` but can be relocated by redefining the `TIK_IMG_DIR` parameter in your tik config
 
 ## tik Installation Media
 
