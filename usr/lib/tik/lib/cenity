@@ -91,6 +91,13 @@ cenity() {
   return $retvalue
 }
 
+
+c_key() {
+  echo -e "\tPress key to continue"
+  read
+}
+
+
 c_progress() {
   local l=$1
   local pulsate=$2
@@ -106,4 +113,54 @@ c_progress() {
     # print text after previously printed percentage
     printf '    %s' "${l}"
   fi
+}
+
+
+c_entry() {
+  local title=$2
+  local text=$3
+
+  echo -e "--ENTRY----- ${title} -------------\n"
+  read -p "${text}: "
+  eval $1='$REPLY'
+}
+
+
+c_password() {
+  local title=$2
+  local text=$3
+
+  echo -e "--PASSWORD-- ${title} -------------\n"
+  read -s -p "${text}: "
+  eval $1='$REPLY'
+}
+
+
+c_info() {
+  local title=$2
+  local text=$3
+
+  echo -e "--INFO------ ${title} -------------\n"
+  echo -e "${text}\n"
+  c_key
+}
+
+
+c_warning() {
+  local title=$2
+  local text=$3
+
+  echo -e "--WARNING--- ${title} -------------\n"
+  echo -e "${text}\n"
+  c_key
+}
+
+
+c_error() {
+  local title=$2
+  local text=$3
+
+  echo -e "--ERROR----- ${title} -------------\n"
+  echo -e "${text}\n"
+  c_key
 }
