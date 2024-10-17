@@ -61,7 +61,7 @@ encrypt_notification() {
         # Secureboot being disabled makes the notification a Yes/No with the preference being to exit
         if [ "${secureboot_disabled}" == 1 ]; then
             log "[encrypt_notification] secureboot warning shown"
-            zenity --width=600 --question --icon=security-low-symbolic --title="Warning" --ok-label="Cancel Installation" --cancel-label="I Understand, Proceed Anyway" --text="${preamble}\n\nReason: <b>SecureBoot Disabled</b> and ${reason}\n\n${secureboot_warning}" && exit 1
+            d --width=600 --question --icon=security-low-symbolic --title="Warning" --ok-label="Cancel Installation" --cancel-label="I Understand, Proceed Anyway" --text="${preamble}\n\nReason: <b>SecureBoot Disabled</b> and ${reason}\n\n${secureboot_warning}" && exit 1
             log "[encrypt_notification] secureboot warning ignored, installation continuing"
             d --width=600 --warning --icon=security-low-symbolic --text="${postamble}"
         # Secureboot is enabled, so show a warning

@@ -184,7 +184,7 @@ display_recoveryKey() {
     [ "${tik_encrypt_mode}" == 0 ] && message=${defaultmsg}
     [ "${tik_encrypt_mode}" == 1 ] && message=${fallbackmsg}
     log "[display_recoveryKey] displaying recovery key"
-    zenity --width=500 --height=500 --no-wrap --warning --icon=security-high-symbolic --title="Encryption Recovery Key" --text="${message}You may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode ${key} -t UTF8i)</span>\nFor more information please visit <tt>https://aeondesktop.org/encrypt</tt>"
+    d --width=500 --height=500 --no-wrap --warning --icon=security-high-symbolic --title="Encryption Recovery Key" --text="${message}You may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode ${key} -t UTF8i)</span>\nFor more information please visit <tt>https://aeondesktop.org/encrypt</tt>"
     log "[display_recoveryKey] recovery key dialogue dismissed"
 }
 
@@ -203,7 +203,7 @@ add_key() {
                     return 0
                 ;;
                 1|255)
-                    zenity --question --text="Do you really want to quit?" && exit 1
+                    d --question --text="Do you really want to quit?" && exit 1
                 ;;
             esac
         done
