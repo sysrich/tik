@@ -116,6 +116,47 @@ c_progress() {
 }
 
 
+c_list() {
+  local title=$2
+  local text=$3
+  local -n cols=$4
+  local -n cont=$5
+  local count=1 # set to 1 to skip the very first content tem, which is the variable to return
+  local line=""
+  local lines=()
+
+  for l in $(seq 1 ${#cont[@]}); do
+    line+=$(printf "%s\t" "${cont[$l]}")
+    if (( count == ${#cols[@]} )); then
+      lines+=("$line")
+      line=""
+      count=0
+    fi
+    count=$((count+1))
+  done
+
+  echo -e "--LIST------ ${title} -------------\n"
+  echo -e "${text}"
+
+  # print column title
+  for key in "${!cols[@]}"; do
+    printf '\t%s' "${cols[$key]} "
+  done
+
+  # print columns
+  for key in "${!lines[@]}"; do
+    printf '\n%s: ' $key
+    printf '\t%s' "${lines[$key]}"
+  done
+
+  echo -e "\nPlease select a number"
+  read
+
+  retval=$(printf "%s" "${lines[$REPLY]}" | cut -d $'\t' -f1)
+  eval $1='$retval'
+}
+
+
 c_question() {
   local title=$2
   local text=$3
