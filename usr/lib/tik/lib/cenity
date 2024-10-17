@@ -67,6 +67,8 @@ cenity() {
     return 1
   fi
 
+  text=$(c_replace_tags "$text")
+
   if [ $function = "c_progress" ]; then
     echo -e "--PROGESS--- ${title} -------------\n"
     if $cancel; then
@@ -89,6 +91,14 @@ cenity() {
 
   eval $1='$result'
   return $retvalue
+}
+
+
+c_replace_tags() {
+  text="$1"
+  text="$(echo "$text" | sed -e 's/\(<b>\|<tt>\|<big>\)/\\033[1m/g' | sed 's/\(<\/b>\|<\/tt>\|<\/big>\)/\\033[0m/g')"
+  text="$(echo "$text" | sed -e 's/<span face=.*><\/span>//')"
+  echo "$text"
 }
 
 
