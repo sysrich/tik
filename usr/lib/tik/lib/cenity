@@ -67,5 +67,43 @@ cenity() {
     return 1
   fi
 
+  if [ $function = "c_progress" ]; then
+    echo -e "--PROGESS--- ${title} -------------\n"
+    if $cancel; then
+      echo "Progress (CTRL + C to cancel): "
+    fi
+
+    if [ -p /dev/stdin ]; then
+      if $pulsate; then
+        cat -
+      else
+        while IFS="" read line; do
+          c_progress "${line}"
+        done
+      fi
+    fi
+  else
+    result=""
+    $function result "$title" "$text" columns content; retvalue=$?
+  fi
+
+  eval $1='$result'
   return $retvalue
+}
+
+c_progress() {
+  local l=$1
+  local pulsate=$2
+  local re='^[0-9]+$'
+
+  if [[ ${l} =~ $re ]]; then
+    # clear line
+    printf ' %.0s' {1..100} ; echo -ne "\r"
+    percent=$l
+    # print percentage
+    printf '%3s%%' "${percent}"
+  elif [[ "${l}" =~ ^#.* ]] ; then
+    # print text after previously printed percentage
+    printf '    %s' "${l}"
+  fi
 }
