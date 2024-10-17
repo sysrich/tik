@@ -196,7 +196,11 @@ add_key() {
         while true
         do
             retval=0
-            key="$(zenity --password --title='Set Encryption Passphrase')" || retval=$?
+            if $gui; then
+                key="$(zenity --password --title='Set Encryption Passphrase')" || retval=$?
+            else
+                cenity key --password --title="Set Encryption Passphrase" || retval=$?
+            fi
             case $retval in
                 0)
                     prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"${key}"
