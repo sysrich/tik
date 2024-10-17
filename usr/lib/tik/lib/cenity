@@ -116,6 +116,30 @@ c_progress() {
 }
 
 
+c_question() {
+  local title=$2
+  local text=$3
+
+  echo -e "--QUESTION-- ${title} -------------\n"
+  echo -e "${text}\n"
+
+  select yn in "Yes" "No"; do
+    case $yn in
+      Yes )
+        echo "Selected: 1) yes"
+        return 0
+        break
+        ;;
+      No )
+        echo "Selected: 2) No"
+        return 1
+        break
+        ;;
+    esac
+  done
+}
+
+
 c_entry() {
   local title=$2
   local text=$3
