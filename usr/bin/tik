@@ -24,6 +24,14 @@ if [[ $1 == "--debug" ]]; then
     debug=1
 fi
 
+# Check if graphical display is available
+XDG_SESSION="${XDG_SESSION_TYPE:=unspecified}"
+if [ $XDG_SESSION_TYPE = "wayland" ] || [ $XDG_SESSION_TYPE = "x11" ] ; then
+    gui=true
+else
+    gui=false
+fi
+
 # Read configuration files, /usr first, then /etc
 . ${tik_dir}/config
 . ${TIK_CUSTOM_DIR}/config

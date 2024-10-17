@@ -2,6 +2,8 @@
 # SPDX-FileCopyrightText: Copyright 2023-2024 SUSE LLC
 # SPDX-FileCopyrightText: Copyright 2023-2024 Richard Brown
 
+. /usr/lib/tik/lib/cenity
+
 log(){
     echo "[${tik_module}][$(date +"%Y%m%d-%T")][LOG] $*" 1>&2
 }
@@ -13,7 +15,7 @@ warn() {
 
 error() {
     echo "[${tik_module}][$(date +"%Y%m%d-%T")][ERROR] $*" 1>&2
-    d --error --text "$*"
+    d --error --text="$*"
     exit 1
 }
 
@@ -21,14 +23,22 @@ d(){
     while true
     do
         retval=0
-        result="$(zenity "$@")" || retval=$?
+        if $gui; then
+            result="$(zenity "$@")" || retval=$?
+        else
+            cenity result "$@" || retval=$?
+        fi
         log "[zenity][${retval}][${result}] $@"
         case $retval in
             0)
                 return 0
             ;;
             1|255)
-                zenity --question --text="Do you really want to quit?" && exit 1
+                if $gui; then
+                    zenity --question --text="Do you really want to quit?" && exit 1
+                else
+                    cenity result --question --text="Do you really want to quit?" && exit 1
+                fi
             ;;
         esac
     done
