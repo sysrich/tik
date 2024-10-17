@@ -1,5 +1,7 @@
 cenity() {
 
+  trap ctrl_c INT
+  
   title=""
   text=""
   function=""
@@ -62,6 +64,16 @@ cenity() {
     esac
   done
 
+  ctrl_c() {
+    if ! $cancel; then
+      echo "No Cancel"
+    else
+      echo "Canceled"
+      retvalue=1
+      return $retvalue
+    fi
+  }
+
   if [[ ! $function ]]; then
     echo "function not set"
     return 1
@@ -91,6 +103,11 @@ cenity() {
 
   eval $1='$result'
   return $retvalue
+}
+
+
+c_clear() {
+  printf "\033c"
 }
 
 
