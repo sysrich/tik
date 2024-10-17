@@ -1,0 +1,71 @@
+cenity() {
+
+  title=""
+  text=""
+  function=""
+  cancel=true
+  pulsate=false
+  retvalue=0
+  columns=()
+  content=()
+  column_num=0
+
+  for p in "$@"; do
+    case "$p" in
+      --info*)
+        function=c_info
+        ;;
+      --warning*)
+        function=c_warning
+        ;;
+      --error*)
+        function=c_error
+        ;;
+      --question*)
+        function=c_question
+        ;;
+      --entry*)
+        function=c_entry
+        ;;
+      --password*)
+        function=c_password
+        ;;
+      --list*)
+        function=c_list
+        ;;
+      --progress*)
+        function=c_progress
+        ;;
+      --title*)
+        title=$(sed 's/^--title=//' <<< $p)
+        ;;
+      --text*)
+        text=$(sed 's/^--text=//' <<< $p)
+        ;;
+      --percentage*)
+        percentage=$(sed 's/^--percentage=//' <<< $p)
+        ;;
+      --column*)
+        columns+=("$(cut -d '=' -f2 <<< $p)")
+        ;;
+      --pulsate*)
+        pulsate=true
+        ;;
+      --no-cancel*)
+        cancel=false
+        ;;
+      "")
+        ;;
+      *)
+        content+=("$p")
+        ;;
+    esac
+  done
+
+  if [[ ! $function ]]; then
+    echo "function not set"
+    return 1
+  fi
+
+  return $retvalue
+}
