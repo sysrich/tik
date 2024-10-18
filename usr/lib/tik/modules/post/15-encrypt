@@ -207,7 +207,7 @@ add_key() {
                     return 0
                 ;;
                 1|255)
-                    d --question --text="Do you really want to quit?" && exit 1
+                    d_opt --question --text="Do you really want to quit?" && exit 1
                 ;;
             esac
         done

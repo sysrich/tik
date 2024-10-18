@@ -10,7 +10,7 @@ fi
 
 if [ ! -z "$(ls -A ${mig_dir})" ]; then
     log "existing backup found"
-    d --question --no-wrap --cancel-label="No, Delete Backup" --title="Existing user backup detected" --text="These users can be restored to the new installation\n\nWould you like to use this backup?"
+    d_opt --question --no-wrap --cancel-label="No, Delete Backup" --title="Existing user backup detected" --text="These users can be restored to the new installation\n\nWould you like to use this backup?"
     oldbackupyn=$?
     log "[oldbackupyn][${oldbackupyn}]"
     if [ "${oldbackupyn}" == 0 ]; then

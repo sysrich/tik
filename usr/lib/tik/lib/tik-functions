@@ -44,6 +44,17 @@ d(){
     done
 }
 
+d_opt(){
+    retval=0
+    if $gui; then
+        result="$(zenity "$@")" || retval=$?
+    else
+        cenity result "$@" || retval=$?
+    fi
+    log "[zenity][${retval}][${result}] $@"
+    return $retval
+}
+
 # variant of privileged run (prun) function that doesn't require the pkexec call to return 0
 prun-opt() {
     if [ "${debug}" == "1" ]; then
