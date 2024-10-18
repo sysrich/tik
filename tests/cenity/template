@@ -5,9 +5,8 @@
 RESULT=0
 
 #######################################
-asserted_output="\
-<EXPECTED OUTPUT>"
-output=$(c_test <options> <<< <input> 2>&1) 
+asserted_output="$(echo -e '<EXPECTED OUTPUT>')"
+output="$(c_test <options> <<< <input> 2>&1)"
 compare "$output" "$asserted_output"
 
 check_result
