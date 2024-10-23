@@ -4,6 +4,7 @@
 
 RESULT=0
 
+#######################################
 asserted_output="\
 --WARNING--- AC Power Recommended ----------------
 
@@ -17,10 +18,29 @@ output=$(c_test --warning --no-wrap --title="AC Power Recommended" --text="Runnn
 compare "$output" "$asserted_output"
 
 
-# TODO: handle icons 
+#######################################
+asserted_output="$(echo -e '--WARNING---  -------------security-low--
 
-# c_test --width=600 --warning --icon=security-low-symbolic --text="${postamble}"
+postamble
 
-# c_test --width=600 --warning --icon=security-medium-symbolic --text="${preamble}\n\nReason: ${reason}\n\n${postamble}"
+	Press key to continue
+[cenity][][] --width=600 --warning --icon=security-low-symbolic --text=postamble')"
+output=$(c_test --width=600 --warning --icon=security-low-symbolic --text="postamble" <<< "\n" 2>&1)
+compare "$output" "$asserted_output"
+
+
+#######################################
+asserted_output="$(echo -e '--WARNING---  -------------security-medium--
+
+preamble
+
+Reason: reason
+
+postamble
+
+	Press key to continue
+[cenity][][] --width=600 --warning --icon=security-medium-symbolic --text=preamble\\n\\nReason: reason\\n\\npostamble')"
+output=$(c_test --width=600 --warning --icon=security-medium-symbolic --text="preamble\n\nReason: reason\n\npostamble" <<< "\n" 2>&1)
+compare "$output" "$asserted_output"
 
 check_result
