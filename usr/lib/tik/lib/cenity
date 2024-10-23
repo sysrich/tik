@@ -121,7 +121,7 @@ c_replace_tags() {
 
 c_key() {
   echo -e "\tPress key to continue"
-  read
+  read -n 1 -s -r
 }
 
 
