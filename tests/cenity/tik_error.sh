@@ -5,7 +5,7 @@
 RESULT=0
 
 #######################################
-asserted_output="$(echo -e '--ERROR----- Installation Failed -------------
+asserted_output="$(echo -e '--ERROR----- Installation Failed ----------------
 
 Please file a bug report at \033[1mTEST URL\033[0m
 

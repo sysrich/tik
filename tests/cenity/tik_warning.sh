@@ -5,7 +5,7 @@
 RESULT=0
 
 asserted_output="\
---WARNING--- AC Power Recommended -------------
+--WARNING--- AC Power Recommended ----------------
 
 Runnning on battery power detected
 

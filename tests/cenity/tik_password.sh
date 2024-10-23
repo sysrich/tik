@@ -5,7 +5,7 @@
 RESULT=0
 
 #######################################
-asserted_output="$(echo -e '--PASSWORD-- Set Encryption Passphrase -------------
+asserted_output="$(echo -e '--PASSWORD-- Set Encryption Passphrase ----------------
 
 [cenity][][test] --password --title=Set Encryption Passphrase')"
 output="$(c_test --password --title='Set Encryption Passphrase' <<< "test" 2>&1)"

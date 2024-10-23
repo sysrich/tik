@@ -5,7 +5,7 @@
 RESULT=0
 
 #######################################
-asserted_output="$(echo -e '--INFO------  -------------
+asserted_output="$(echo -e '--INFO------  ----------------
 
 \033[1mTest Succeeded:\033[0m
 
@@ -16,7 +16,7 @@ Have a nice day!
 output="$(c_test --timeout 5 --info --no-wrap --text="<b>Test Succeeded:</b>\n\nHave a nice day!" <<< "\n" 2>&1)"
 compare "$output" "$asserted_output"
 
-asserted_output="$(echo -e '--INFO------ Installation Complete! -------------
+asserted_output="$(echo -e '--INFO------ Installation Complete! ----------------
 
 TIK_OS_NAME has been installed.
 

@@ -6,7 +6,7 @@ RESULT=0
 
 #######################################
 asserted_output="\
---QUESTION--  -------------
+--QUESTION--  ----------------
 
 Do you really want to quit?
 
@@ -20,7 +20,7 @@ compare "$output" "$asserted_output"
 
 
 asserted_output="\
---QUESTION--  -------------
+--QUESTION--  ----------------
 
 Do you really want to quit?
 
@@ -35,7 +35,7 @@ compare "$output" "$asserted_output"
 
 #######################################
 asserted_output="\
---QUESTION-- Backup users from the existing install? -------------
+--QUESTION-- Backup users from the existing install? ----------------
 
 These users will be restored to the new installation.
 
@@ -49,7 +49,7 @@ compare "$output" "$asserted_output"
 
 
 asserted_output="\
---QUESTION-- Backup users from the existing install? -------------
+--QUESTION-- Backup users from the existing install? ----------------
 
 These users will be restored to the new installation.
 
