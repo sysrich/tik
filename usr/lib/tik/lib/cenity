@@ -119,7 +119,8 @@ c_clear() {
 c_replace_tags() {
   text="$1"
   text="$(echo "$text" | sed -e 's/\(<b>\|<tt>\|<big>\)/\\033[1m/g' | sed 's/\(<\/b>\|<\/tt>\|<\/big>\)/\\033[0m/g')"
-  text="$(echo "$text" | sed -e 's/<span face=.*><\/span>//')"
+  text="$(echo "$text" | sed -e 's/<span face=.*>//')"
+  text="$(echo "$text" | sed -e 's/<\/span>//')"
   echo "$text"
 }
 
