@@ -4,6 +4,7 @@ cenity() {
   
   title=""
   text=""
+  icon="-"
   function=""
   cancel=true
   pulsate=false
@@ -56,6 +57,9 @@ cenity() {
       --no-cancel*)
         cancel=false
         ;;
+      --icon*)
+        icon=$(sed 's/^--icon=//' <<< $p)
+        ;;
       "")
         ;;
       *)
@@ -80,9 +84,10 @@ cenity() {
   fi
 
   text=$(c_replace_tags "$text")
+  icon=$(c_handle_icon "$icon")
 
   if [ $function = "c_progress" ]; then
-    echo -e "--PROGESS--- ${title} -------------\n"
+    echo -e "--PROGESS--- ${title} -------------${icon}--\n"
     if $cancel; then
       echo "Progress (CTRL + C to cancel): "
     fi
@@ -98,7 +103,7 @@ cenity() {
     fi
   else
     result=""
-    $function result "$title" "$text" columns content; retvalue=$?
+    $function result "$title" "$text" "$icon" columns content; retvalue=$?
   fi
 
   eval $1='$result'
@@ -116,6 +121,17 @@ c_replace_tags() {
   text="$(echo "$text" | sed -e 's/\(<b>\|<tt>\|<big>\)/\\033[1m/g' | sed 's/\(<\/b>\|<\/tt>\|<\/big>\)/\\033[0m/g')"
   text="$(echo "$text" | sed -e 's/<span face=.*><\/span>//')"
   echo "$text"
+}
+
+
+c_handle_icon() {
+  local icon="$1"
+  if [[ $icon =~ "security" ]]; then
+    icon=$(sed 's/-symbolic$//' <<< $icon)
+  else
+    icon="-"
+  fi
+  echo "$icon"
 }
 
 
@@ -146,8 +162,9 @@ c_progress() {
 c_list() {
   local title=$2
   local text=$3
-  local -n cols=$4
-  local -n cont=$5
+  local icon=$4
+  local -n cols=$5
+  local -n cont=$6
   local count=1 # set to 1 to skip the very first content tem, which is the variable to return
   local line=""
   local lines=()
@@ -162,7 +179,7 @@ c_list() {
     count=$((count+1))
   done
 
-  echo -e "--LIST------ ${title} -------------\n"
+  echo -e "--LIST------ ${title} -------------${icon}--\n"
   echo -e "${text}"
 
   # print column title
@@ -187,8 +204,9 @@ c_list() {
 c_question() {
   local title=$2
   local text=$3
+  local icon=$4
 
-  echo -e "--QUESTION-- ${title} -------------\n"
+  echo -e "--QUESTION-- ${title} -------------${icon}--\n"
   echo -e "${text}\n"
 
   select yn in "Yes" "No"; do
@@ -211,8 +229,9 @@ c_question() {
 c_entry() {
   local title=$2
   local text=$3
+  local icon=$4
 
-  echo -e "--ENTRY----- ${title} -------------\n"
+  echo -e "--ENTRY----- ${title} -------------${icon}--\n"
   read -p "${text}: "
   eval $1='$REPLY'
 }
@@ -221,8 +240,9 @@ c_entry() {
 c_password() {
   local title=$2
   local text=$3
+  local icon=$4
 
-  echo -e "--PASSWORD-- ${title} -------------\n"
+  echo -e "--PASSWORD-- ${title} -------------${icon}--\n"
   read -s -p "${text}: "
   eval $1='$REPLY'
 }
@@ -231,8 +251,9 @@ c_password() {
 c_info() {
   local title=$2
   local text=$3
+  local icon=$4
 
-  echo -e "--INFO------ ${title} -------------\n"
+  echo -e "--INFO------ ${title} -------------${icon}--\n"
   echo -e "${text}\n"
   c_key
 }
@@ -241,8 +262,9 @@ c_info() {
 c_warning() {
   local title=$2
   local text=$3
+  local icon=$4
 
-  echo -e "--WARNING--- ${title} -------------\n"
+  echo -e "--WARNING--- ${title} -------------${icon}--\n"
   echo -e "${text}\n"
   c_key
 }
@@ -251,8 +273,9 @@ c_warning() {
 c_error() {
   local title=$2
   local text=$3
+  local icon=$4
 
-  echo -e "--ERROR----- ${title} -------------\n"
+  echo -e "--ERROR----- ${title} -------------${icon}--\n"
   echo -e "${text}\n"
   c_key
 }
