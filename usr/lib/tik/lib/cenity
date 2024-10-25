@@ -60,6 +60,10 @@ cenity() {
       --icon*)
         icon=$(sed 's/^--icon=//' <<< $p)
         ;;
+      --height*)
+        ;;
+      --width*)
+        ;;
       "")
         ;;
       *)
@@ -169,6 +173,7 @@ c_list() {
   local count=1 # set to 1 to skip the very first content tem, which is the variable to return
   local line=""
   local lines=()
+  local output=""
 
   for l in $(seq 1 ${#cont[@]}); do
     line+=$(printf "%s\t" "${cont[$l]}")
@@ -183,18 +188,23 @@ c_list() {
   echo -e "--LIST------ ${title} -------------${icon}--\n"
   echo -e "${text}"
 
-  # print column title
+  output="Item "
+  # add column title
   for key in "${!cols[@]}"; do
-    printf '\t%s' "${cols[$key]} "
+    output="${output} $(printf '%s' "${cols[$key]} ")"
   done
 
-  # print columns
+  # add columns
   for key in "${!lines[@]}"; do
-    printf '\n%s: ' $key
-    printf '\t%s' "${lines[$key]}"
+    output="${output}\n"
+    output="${output} $(printf '%s: ' $key)"
+    output="${output} $(printf '%s ' ${lines[$key]})"
   done
 
-  echo -e "\nPlease select a number"
+  # print table
+  echo -e $output | column -t
+
+  echo -e "\nPlease select a item number"
   read
 
   retval=$(printf "%s" "${lines[$REPLY]}" | cut -d $'\t' -f1)
