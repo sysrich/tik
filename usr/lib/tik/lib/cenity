@@ -98,7 +98,7 @@ cenity() {
 
     if [ -p /dev/stdin ]; then
       if $pulsate; then
-        cat -
+        { cat - & c_spinner; }
       else
         while IFS="" read line; do
           c_progress "${line}"
@@ -112,6 +112,23 @@ cenity() {
 
   eval $1='$result'
   return $retvalue
+}
+
+
+c_spinner()
+{
+    local pid=$!
+    local delay=0.4
+    local spinstr='|/-\'
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        for X in '-' '/' '|' '\'; do
+            echo
+            printf "[%c]" "$X"
+            echo -en "\033[1A"
+            sleep $delay
+            printf "\b\b\b\b\b"
+        done
+    done
 }
 
 
