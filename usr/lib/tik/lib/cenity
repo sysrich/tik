@@ -7,6 +7,7 @@ cenity() {
   icon="-"
   function=""
   cancel=true
+  autoclose=false
   pulsate=false
   retvalue=0
   columns=()
@@ -57,6 +58,9 @@ cenity() {
       --no-cancel*)
         cancel=false
         ;;
+      --auto-close*)
+        autoclose=true
+        ;;
       --icon*)
         icon=$(sed 's/^--icon=//' <<< $p)
         ;;
@@ -102,6 +106,9 @@ cenity() {
       else
         while IFS="" read line; do
           c_progress "${line}"
+          if [[ "$line" == 100 ]] && [ "$autoclose" = true ]; then
+            return 0
+          fi
         done
       fi
     fi
@@ -165,7 +172,6 @@ c_key() {
 
 c_progress() {
   local l=$1
-  local pulsate=$2
   local re='^[0-9]+$'
 
   if [[ ${l} =~ $re ]]; then
