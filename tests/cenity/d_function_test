@@ -5,6 +5,22 @@ compare() {
     diff -y <(echo "$1") <(echo "$2") || RESULT=$((RESULT+1))
 }
 
+string_test() {
+    local strings=("$@")
+
+    echo "$strings"
+
+    for i in "${strings[@]}"; do
+        echo "Testing $i"
+        if grep "$i" "/tmp/out"; then
+            echo "$i found - passed"
+        else
+            echo "$i not found - failed"
+            RESULT=1
+        fi
+    done
+}
+
 check_result() {
     if [ $RESULT -gt 0 ]; then
         echo "$0 FAILED"
