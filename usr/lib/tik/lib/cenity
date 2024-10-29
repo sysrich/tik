@@ -13,6 +13,7 @@ cenity() {
   columns=()
   content=()
   column_num=0
+  percent=0
 
   for p in "$@"; do
     case "$p" in
@@ -181,8 +182,10 @@ c_progress() {
     # print percentage
     printf '%3s%%' "${percent}"
   elif [[ "${l}" =~ ^#.* ]] ; then
-    # print text after previously printed percentage
-    printf '    %s' "${l}"
+    # clear line
+    printf ' %.0s' {1..100} ; echo -ne "\r"
+    # print text with percentage
+    printf '%3s%% - %s' "${percent}" "${l}"
   fi
 }
 
