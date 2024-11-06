@@ -2,7 +2,13 @@ cenity="../../usr/lib/tik/lib/cenity"
 . $cenity
 
 compare() {
-    diff -y <(echo "$1") <(echo "$2") || RESULT=$((RESULT+1))
+    if [ "$mode" = "output" ]; then
+        echo "$1"
+    elif [ "$mode" = "sidebyside" ]; then
+        diff -y <(echo "$1") <(echo "$2") || RESULT=$((RESULT+1))
+    else
+        diff <(echo "$1") <(echo "$2") || RESULT=$((RESULT+1))
+    fi
 }
 
 string_test() {
@@ -16,7 +22,7 @@ string_test() {
             echo "$i found - passed"
         else
             echo "$i not found - failed"
-            RESULT=1
+            RESULT=$((RESULT+1))
         fi
     done
 }
