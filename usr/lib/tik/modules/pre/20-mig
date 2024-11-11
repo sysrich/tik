@@ -58,13 +58,6 @@ if [ -z "${skipbackup}" ]; then
             else
                 while [ 1 ]; do
                     passphrase=$(zenity --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip") || break
-                    # Ask again, and double check the user is putting the right passphrase again.
-                    passphrase_check=$(zenity --password --title="Type passphrase again" --cancel-label="Skip") || break
-                    if [ "$passphrase" != "$passphrase_check" ]; then
-                        d --warning --no-wrap --title="Passphrase did not match" --text="Passphrase did not match, try again"
-                        # Reset variable, so we can try again
-                        passphrase=""
-                    fi
                     if [ -n "${passphrase}" ]; then
                         echo -n "${passphrase}" | prun /usr/sbin/cryptsetup luksOpen /dev/disk/by-id/${encrypted_partition} crypt_${encrypted_partition}
                         if [ "${?}" -eq 0 ]; then
