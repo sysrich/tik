@@ -1,0 +1,49 @@
+cenity="../../usr/lib/tik/lib/cenity"
+. $cenity
+
+compare() {
+    diff -y <(echo "$1") <(echo "$2") || RESULT=$((RESULT+1))
+}
+
+string_test() {
+    local strings=("$@")
+
+    echo "$strings"
+
+    for i in "${strings[@]}"; do
+        echo "Testing $i"
+        if grep "$i" "/tmp/out"; then
+            echo "$i found - passed"
+        else
+            echo "$i not found - failed"
+            RESULT=1
+        fi
+    done
+}
+
+check_result() {
+    if [ $RESULT -gt 0 ]; then
+        echo "$0 FAILED"
+        exit 1
+    else
+        echo "$0 PASSED"
+        exit 0
+    fi
+
+    echo "Error"
+    exit 255
+}
+
+c_test() {
+    unset c_retval
+    
+    cenity c_result "$@" || c_retval=$?
+    echo "[cenity][${c_retval}][${c_result}] $@"
+}
+
+z_test() {
+    unset z_retval
+
+    z_result="$(zenity "$@")" || z_retval=$?
+    echo "[zenity][${z_retval}][${z_result}] $@"
+}

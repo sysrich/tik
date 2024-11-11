@@ -10,7 +10,7 @@ fi
 
 if [ ! -z "$(ls -A ${mig_dir})" ]; then
     log "existing backup found"
-    zenity --question --no-wrap --cancel-label="No, Delete Backup" --title="Existing user backup detected" --text="These users can be restored to the new installation\n\nWould you like to use this backup?"
+    d_opt --question --no-wrap --cancel-label="No, Delete Backup" --title="Existing user backup detected" --text="These users can be restored to the new installation\n\nWould you like to use this backup?"
     oldbackupyn=$?
     log "[oldbackupyn][${oldbackupyn}]"
     if [ "${oldbackupyn}" == 0 ]; then
@@ -57,7 +57,11 @@ if [ -z "${skipbackup}" ]; then
                 crypt_opened="${crypt_opened} crypt_${encrypted_partition}"
             else
                 while [ 1 ]; do
-                    passphrase=$(zenity --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip") || break
+                    if $gui; then
+                          passphrase=$(zenity --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip") || break
+                    else
+                        cenity passphrase --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip" || retval=$?
+                    fi
                     if [ -n "${passphrase}" ]; then
                         echo -n "${passphrase}" | prun /usr/sbin/cryptsetup luksOpen /dev/disk/by-id/${encrypted_partition} crypt_${encrypted_partition}
                         if [ "${?}" -eq 0 ]; then
@@ -105,7 +109,7 @@ if [ -z "${skipbackup}" ]; then
             if [ "${legacy_aeon}" == 1 ]; then
                 d --info --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic  --no-wrap --title="Message from the Aeon Team" --text="We'd like to thank you for adopting openSUSE Aeon so early in it's development,\nbefore we fully understood what we were building or how we wanted it to look\n\nWe are sorry that you need to reinstall your system\n\nThank you so much for your support.\nWe hope you enjoy the new look openSUSE Aeon"
             fi
-            zenity --question --no-wrap --title="Backup users from the existing install?" --text="These users will be restored to the new installation."
+            d --question --no-wrap --title="Backup users from the existing install?" --text="These users will be restored to the new installation."
             migrateyn=$?
             if [ "${migrateyn}" == 0 ]; then
                 migrate=1

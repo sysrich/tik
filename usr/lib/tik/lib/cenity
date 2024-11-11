@@ -1,0 +1,318 @@
+cenity() {
+
+  trap ctrl_c INT
+  
+  title=""
+  text=""
+  icon="-"
+  function=""
+  cancel=true
+  autoclose=false
+  pulsate=false
+  retvalue=0
+  columns=()
+  content=()
+  column_num=0
+  percent=0
+
+  for p in "$@"; do
+    case "$p" in
+      --info*)
+        function=c_info
+        ;;
+      --warning*)
+        function=c_warning
+        ;;
+      --error*)
+        function=c_error
+        ;;
+      --question*)
+        function=c_question
+        ;;
+      --entry*)
+        function=c_entry
+        ;;
+      --password*)
+        function=c_password
+        ;;
+      --list*)
+        function=c_list
+        ;;
+      --progress*)
+        function=c_progress
+        ;;
+      --title*)
+        title=$(sed 's/^--title=//' <<< $p)
+        ;;
+      --text*)
+        text=$(sed 's/^--text=//' <<< $p)
+        ;;
+      --percentage*)
+        percentage=$(sed 's/^--percentage=//' <<< $p)
+        ;;
+      --column*)
+        columns+=("$(cut -d '=' -f2 <<< $p)")
+        ;;
+      --pulsate*)
+        pulsate=true
+        ;;
+      --no-cancel*)
+        cancel=false
+        ;;
+      --auto-close*)
+        autoclose=true
+        ;;
+      --icon*)
+        icon=$(sed 's/^--icon=//' <<< $p)
+        ;;
+      --height*)
+        ;;
+      --width*)
+        ;;
+      "")
+        ;;
+      *)
+        content+=("$p")
+        ;;
+    esac
+  done
+
+  ctrl_c() {
+    if ! $cancel; then
+      echo "No Cancel"
+    else
+      echo "Canceled"
+      retvalue=1
+      return $retvalue
+    fi
+  }
+
+  if [[ ! $function ]]; then
+    echo "function not set"
+    return 1
+  fi
+
+  text=$(c_replace_tags "$text")
+  icon=$(c_handle_icon "$icon")
+
+  if [ $function = "c_progress" ]; then
+    echo -e "--PROGESS--- ${title} -------------${icon}--\n"
+    if $cancel; then
+      echo "Progress (CTRL + C to cancel): "
+    fi
+
+    if [ -p /dev/stdin ]; then
+      if $pulsate; then
+        { cat - & c_spinner; }
+      else
+        while IFS="" read line; do
+          c_progress "${line}"
+          if [[ "$line" == 100 ]] && [ "$autoclose" = true ]; then
+            return 0
+          fi
+        done
+      fi
+    fi
+  else
+    result=""
+    $function result "$title" "$text" "$icon" columns content; retvalue=$?
+  fi
+
+  eval $1='$result'
+  return $retvalue
+}
+
+
+c_spinner()
+{
+    local pid=$!
+    local delay=0.4
+    local spinstr='|/-\'
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        for X in '-' '/' '|' '\'; do
+            echo
+            printf "[%c]" "$X"
+            echo -en "\033[1A"
+            sleep $delay
+            printf "\b\b\b\b\b"
+        done
+    done
+}
+
+
+c_clear() {
+  printf "\033c"
+}
+
+
+c_replace_tags() {
+  text="$1"
+  text="$(echo "$text" | sed -e 's/\(<b>\|<tt>\|<big>\)/\\033[1m/g' | sed 's/\(<\/b>\|<\/tt>\|<\/big>\)/\\033[0m/g')"
+  text="$(echo "$text" | sed -e 's/<span face=.*>//')"
+  text="$(echo "$text" | sed -e 's/<\/span>//')"
+  echo "$text"
+}
+
+
+c_handle_icon() {
+  local icon="$1"
+  if [[ $icon =~ "security" ]]; then
+    icon=$(sed 's/-symbolic$//' <<< $icon)
+  else
+    icon="-"
+  fi
+  echo "$icon"
+}
+
+
+c_key() {
+  echo -e "\tPress key to continue"
+  read -n 1 -s -r
+}
+
+
+c_progress() {
+  local l=$1
+  local re='^[0-9]+$'
+
+  if [[ ${l} =~ $re ]]; then
+    # clear line
+    printf ' %.0s' {1..100} ; echo -ne "\r"
+    percent=$l
+    # print percentage
+    printf '%3s%%' "${percent}"
+  elif [[ "${l}" =~ ^#.* ]] ; then
+    # clear line
+    printf ' %.0s' {1..100} ; echo -ne "\r"
+    # print text with percentage
+    printf '%3s%% - %s' "${percent}" "${l}"
+  fi
+}
+
+
+c_list() {
+  local title=$2
+  local text=$3
+  local icon=$4
+  local -n cols=$5
+  local -n cont=$6
+  local count=1 # set to 1 to skip the very first content tem, which is the variable to return
+  local line=""
+  local lines=()
+  local output=""
+
+  for l in $(seq 1 ${#cont[@]}); do
+    line+=$(printf "%s\t" "${cont[$l]}")
+    if (( count == ${#cols[@]} )); then
+      lines+=("$line")
+      line=""
+      count=0
+    fi
+    count=$((count+1))
+  done
+
+  echo -e "--LIST------ ${title} -------------${icon}--\n"
+  echo -e "${text}"
+
+  output="Item "
+  # add column title
+  for key in "${!cols[@]}"; do
+    output="${output} $(printf '%s' "${cols[$key]} ")"
+  done
+
+  # add columns
+  for key in "${!lines[@]}"; do
+    output="${output}\n"
+    output="${output} $(printf '%s: ' $key)"
+    output="${output} $(printf '%s ' ${lines[$key]})"
+  done
+
+  # print table
+  echo -e $output | column -t
+
+  echo -e "\nPlease select a item number"
+  read
+
+  retval=$(printf "%s" "${lines[$REPLY]}" | cut -d $'\t' -f1)
+  eval $1='$retval'
+}
+
+
+c_question() {
+  local title=$2
+  local text=$3
+  local icon=$4
+
+  echo -e "--QUESTION-- ${title} -------------${icon}--\n"
+  echo -e "${text}\n"
+
+  select yn in "Yes" "No"; do
+    case $yn in
+      Yes )
+        echo "Selected: 1) yes"
+        return 0
+        break
+        ;;
+      No )
+        echo "Selected: 2) No"
+        return 1
+        break
+        ;;
+    esac
+  done
+}
+
+
+c_entry() {
+  local title=$2
+  local text=$3
+  local icon=$4
+
+  echo -e "--ENTRY----- ${title} -------------${icon}--\n"
+  read -p "${text}: "
+  eval $1='$REPLY'
+}
+
+
+c_password() {
+  local title=$2
+  local text=$3
+  local icon=$4
+
+  echo -e "--PASSWORD-- ${title} -------------${icon}--\n"
+  read -s -p "${text}: "
+  eval $1='$REPLY'
+}
+
+
+c_info() {
+  local title=$2
+  local text=$3
+  local icon=$4
+
+  echo -e "--INFO------ ${title} -------------${icon}--\n"
+  echo -e "${text}\n"
+  c_key
+}
+
+
+c_warning() {
+  local title=$2
+  local text=$3
+  local icon=$4
+
+  echo -e "--WARNING--- ${title} -------------${icon}--\n"
+  echo -e "${text}\n"
+  c_key
+}
+
+
+c_error() {
+  local title=$2
+  local text=$3
+  local icon=$4
+
+  echo -e "--ERROR----- ${title} -------------${icon}--\n"
+  echo -e "${text}\n"
+  c_key
+}

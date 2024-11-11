@@ -24,6 +24,14 @@ if [[ $1 == "--debug" ]]; then
     debug=1
 fi
 
+# Check if graphical display is available
+XDG_SESSION="${XDG_SESSION_TYPE:=unspecified}"
+if [ $XDG_SESSION_TYPE = "wayland" ] || [ $XDG_SESSION_TYPE = "x11" ] ; then
+    gui=true
+else
+    gui=false
+fi
+
 # Read configuration files, /usr first, then /etc
 . ${tik_dir}/config
 . ${TIK_CUSTOM_DIR}/config
@@ -37,12 +45,12 @@ cleanup() {
     retval=$?
     log "[STOP][${retval}] $0"
     if [ "${debug}" == "1" ]; then
-        zenity --timeout 5 --info --no-wrap --text="<b>Test Succeeded:</b>\n\nHave a nice day!"
+        d --timeout 5 --info --no-wrap --text="<b>Test Succeeded:</b>\n\nHave a nice day!"
     elif [ "${retval}" == "0" ]; then
-        zenity --timeout 5 --info --no-wrap --title="Installation Complete!" --text="${TIK_OS_NAME} has been installed.\n\n<b>System is rebooting</b>"
+        d --timeout 5 --info --no-wrap --title="Installation Complete!" --text="${TIK_OS_NAME} has been installed.\n\n<b>System is rebooting</b>"
         prun systemctl reboot --force
     else
-        zenity --error --no-wrap --title="Installation Failed" --text="Please file a bug report at <tt>${TIK_BUG_URL}</tt>\n\nPlease include the <tt>tik.log</tt> file\nIt can be found on the IGNITION partition on this USB Stick\n\n<b>System is shutting down</b>"
+        d --error --no-wrap --title="Installation Failed" --text="Please file a bug report at <tt>${TIK_BUG_URL}</tt>\n\nPlease include the <tt>tik.log</tt> file\nIt can be found on the IGNITION partition on this USB Stick\n\n<b>System is shutting down</b>"
         cp -a ${tik_log} /ignition
         prun systemctl poweroff --force
     fi
