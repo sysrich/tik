@@ -357,7 +357,7 @@ reread_partitiontable() {
 
 create_keyfile() {
     # Even if there's no partitions using encryption, systemd-repart will need a key-file defined for the --key-file parameter.
-    tik_keyfile=/tmp/tikkeyfile
+    tik_keyfile=$(prun mktemp /tmp/tik.XXXXXXXXXX)
     log "[create_keyfile] Creating keyfile ${tik_keyfile}"
     prun /usr/bin/dd bs=512 count=4 if=/dev/urandom of=${tik_keyfile} iflag=fullblock
     prun /usr/bin/chmod 400 ${tik_keyfile}

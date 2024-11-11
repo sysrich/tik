@@ -195,21 +195,23 @@ add_key() {
         # Not using 'd' function to avoid logging the password
         while true
         do
-            retval=0
             if $gui; then
-                key="$(zenity --password --title='Set Encryption Passphrase')" || retval=$?
+                key=$(zenity --password --title='Set Encryption Passphrase')
+                key_check=$(zenity --password --title='Type Passphrase Again')
             else
-                cenity key --password --title="Set Encryption Passphrase" || retval=$?
+                cenity key --password --title="Set Encryption Passphrase"
+                cenity key_check --password --title="Type Passphrase Again"
             fi
-            case $retval in
-                0)
-                    prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"${key}"
-                    return 0
-                ;;
-                1|255)
-                    d_opt --question --text="Do you really want to quit?" && exit 1
-                ;;
-            esac
+            # Ask again, and double check the user is putting the right passphrase again.
+            if [ "${key}" != "${key_check}" ]; then
+                d --warning --no-wrap --title="Passphrase did not match" --text="Please try again"
+                # Reset variable, so we can try again
+                key=""
+            fi
+            if [ -n "${key}" ]; then
+                prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"${key}"
+            fi
+            break
         done
     fi
 }
