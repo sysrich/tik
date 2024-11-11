@@ -195,9 +195,14 @@ add_key() {
         # Not using 'd' function to avoid logging the password
         while true
         do
-            key=$(zenity --password --title='Set Encryption Passphrase')
+            if $gui; then
+                key=$(zenity --password --title='Set Encryption Passphrase')
+                key_check=$(zenity --password --title='Type Passphrase Again')
+            else
+                cenity key --password --title="Set Encryption Passphrase"
+                cenity key_check --password --title="Type Passphrase Again"
+            fi
             # Ask again, and double check the user is putting the right passphrase again.
-            key_check=$(zenity --password --title='Type Passphrase Again')
             if [ "${key}" != "${key_check}" ]; then
                 d --warning --no-wrap --title="Passphrase did not match" --text="Please try again"
                 # Reset variable, so we can try again
