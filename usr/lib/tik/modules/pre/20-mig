@@ -58,9 +58,9 @@ if [ -z "${skipbackup}" ]; then
             else
                 while [ 1 ]; do
                     if $gui; then
-                          passphrase=$(zenity --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip") || break
+                        passphrase=$(zenity --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip") || break
                     else
-                        cenity passphrase --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip" || retval=$?
+                        cenity passphrase --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip" || break
                     fi
                     if [ -n "${passphrase}" ]; then
                         echo -n "${passphrase}" | prun /usr/sbin/cryptsetup luksOpen /dev/disk/by-id/${encrypted_partition} crypt_${encrypted_partition}
