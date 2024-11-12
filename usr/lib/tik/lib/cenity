@@ -81,7 +81,7 @@ cenity() {
     if ! $cancel; then
       echo "No Cancel"
     else
-      echo "Canceled"
+      echo "Cancelled"
       retvalue=1
       return $retvalue
     fi
