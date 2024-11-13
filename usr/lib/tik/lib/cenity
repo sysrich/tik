@@ -239,8 +239,8 @@ c_list() {
   echo -e "\nPlease select a item number"
   read
 
-  retval=$(printf "%s" "${lines[$REPLY]}" | cut -d $'\t' -f1)
-  eval $1='$retval'
+  local selected=$(printf "%s" "${lines[$REPLY]}" | cut -d $'\t' -f1)
+  eval $1='$selected'
 }
 
 
