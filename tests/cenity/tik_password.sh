@@ -7,6 +7,7 @@ RESULT=0
 #######################################
 asserted_output="$(echo -e '--PASSWORD-- Set Encryption Passphrase ----------------
 
+Press CTRL+C to cancel
 [cenity][][test] --password --title=Set Encryption Passphrase')"
 output="$(c_test --password --title='Set Encryption Passphrase' <<< "test" 2>&1)"
 compare "$output" "$asserted_output"

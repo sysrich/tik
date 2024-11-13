@@ -14,7 +14,8 @@ It can be found on the IGNITION partition on this USB Stick
 
 \033[1mSystem is shutting down\033[0m
 
-	Press key to continue
+Press CTRL+C to cancel
+Press any key to continue
 [cenity][][] --error --no-wrap --title=Installation Failed --text=Please file a bug report at <tt>TEST URL</tt>\\n\\nPlease include the <tt>tik.log</tt> file\\nIt can be found on the IGNITION partition on this USB Stick\\n\\n<b>System is shutting down</b>')"
 output="$(c_test --error --no-wrap --title="Installation Failed" --text="Please file a bug report at <tt>TEST URL</tt>\n\nPlease include the <tt>tik.log</tt> file\nIt can be found on the IGNITION partition on this USB Stick\n\n<b>System is shutting down</b>" <<< "\n" 2>&1)"
 compare "$output" "$asserted_output"

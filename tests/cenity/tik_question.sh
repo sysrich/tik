@@ -10,6 +10,7 @@ asserted_output="\
 
 Do you really want to quit?
 
+Press CTRL+C to cancel
 1) Yes
 2) No
 #? Selected: 1) yes
@@ -24,6 +25,7 @@ asserted_output="\
 
 Do you really want to quit?
 
+Press CTRL+C to cancel
 1) Yes
 2) No
 #? Selected: 2) No
@@ -39,6 +41,7 @@ asserted_output="\
 
 These users will be restored to the new installation.
 
+Press CTRL+C to cancel
 1) Yes
 2) No
 #? Selected: 1) yes
@@ -53,6 +56,7 @@ asserted_output="\
 
 These users will be restored to the new installation.
 
+Press CTRL+C to cancel
 1) Yes
 2) No
 #? Selected: 2) No

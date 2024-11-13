@@ -15,6 +15,8 @@ strings=(
   "100%"
   "[cenity][][]"
 )
+cat /tmp/out
+exit
 string_test "${strings[@]}"
 echo
 rm -f /tmp/out
