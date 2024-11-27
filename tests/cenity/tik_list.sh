@@ -8,6 +8,7 @@ list_items=' virtio-0987654321 20G 3 unknown(2M),vfat(20M),btrfs(4.3G) virtio-te
 #######################################
 asserted_output="$(echo -e '--LIST------ Select A Disk ----------------
 
+Press CTRL+C to cancel
 Select the disk to install the operating system to.
 
 \033[1mMake sure any important documents and files have been backed up.\033[0m
@@ -26,6 +27,7 @@ compare "$output" "$asserted_output"
 #######################################
 asserted_output="$(echo -e '--LIST------ Select A Disk ----------------
 
+Press CTRL+C to cancel
 Select the disk to install the operating system to.
 
 \033[1mMake sure any important documents and files have been backed up.\033[0m
@@ -45,6 +47,7 @@ list_items='tik-osimage-Aeon.20240731.raw.xz 1501130408 tik-osimage-Aeon.test2.r
 #######################################
 asserted_output="$(echo -e '--LIST------ Select A Image ----------------
 
+Press CTRL+C to cancel
 Select the operating system image to install.
 
 Item  Image                             Size
@@ -61,6 +64,7 @@ compare "$output" "$asserted_output"
 #######################################
 asserted_output="$(echo -e '--LIST------ Select A Image ----------------
 
+Press CTRL+C to cancel
 Select the operating system image to install.
 
 Item  Image                             Size

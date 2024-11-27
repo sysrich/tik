@@ -6,6 +6,8 @@ cenity() {
   text=""
   icon="-"
   function=""
+  oklabel="continue"
+  cancellabel="cancel"
   cancel=true
   autoclose=false
   pulsate=false
@@ -50,6 +52,12 @@ cenity() {
         ;;
       --percentage*)
         percentage=$(sed 's/^--percentage=//' <<< $p)
+        ;;
+      --ok-label*)
+        oklabel=$(sed 's/^--ok-label=//' <<< $p)
+        ;;
+      --cancel-label*)
+        cancellabel=$(sed 's/^--cancel-label=//' <<< $p)
         ;;
       --column*)
         columns+=("$(cut -d '=' -f2 <<< $p)")
@@ -98,9 +106,7 @@ cenity() {
 
   if [ $function = "c_progress" ]; then
     echo -e "--PROGESS--- ${title} -------------${icon}--\n"
-    if $cancel; then
-      echo "Progress (CTRL + C to cancel): "
-    fi
+    c_cancel "$cancellabel"
 
     if [ -p /dev/stdin ]; then
       if $pulsate; then
@@ -108,11 +114,13 @@ cenity() {
       else
         while IFS="" read line; do
           c_progress "${line}"
-          if [[ "$line" == 100 ]] && [ "$autoclose" = true ]; then
-            return 0
-          fi
+          if [[ "$line" == 100 ]]; then 
+            break
+	  fi
         done
       fi
+      exec </dev/tty >/dev/tty
+      c_handle_key "$oklabel"
     fi
   else
     result=""
@@ -171,9 +179,20 @@ c_handle_icon() {
 }
 
 
-c_key() {
-  echo -e "\tPress key to continue"
-  read -n 1 -s -r
+c_cancel() {
+  cancellabel="$1"
+  if $cancel; then
+    echo -e "Press CTRL+C to ${cancellabel}"
+  fi
+}
+
+
+c_handle_key() {
+  oklabel="$1"
+  if ! $autoclose; then
+    echo -e "Press any key to ${oklabel}"
+    read -n 1 -s -r
+  fi
 }
 
 
@@ -218,6 +237,7 @@ c_list() {
   done
 
   echo -e "--LIST------ ${title} -------------${icon}--\n"
+  c_cancel "$cancellabel"
   echo -e "${text}"
 
   output="Item "
@@ -251,6 +271,7 @@ c_question() {
 
   echo -e "--QUESTION-- ${title} -------------${icon}--\n"
   echo -e "${text}\n"
+  c_cancel "$cancellabel"
 
   select yn in "Yes" "No"; do
     case $yn in
@@ -275,6 +296,7 @@ c_entry() {
   local icon=$4
 
   echo -e "--ENTRY----- ${title} -------------${icon}--\n"
+  c_cancel "$cancellabel"
   read -p "${text}: "
   eval $1='$REPLY'
 }
@@ -286,6 +308,7 @@ c_password() {
   local icon=$4
 
   echo -e "--PASSWORD-- ${title} -------------${icon}--\n"
+  c_cancel "$cancellabel"
   read -s -p "${text}: "
   eval $1='$REPLY'
 }
@@ -298,7 +321,8 @@ c_info() {
 
   echo -e "--INFO------ ${title} -------------${icon}--\n"
   echo -e "${text}\n"
-  c_key
+  c_cancel "$cancellabel"
+  c_handle_key "$oklabel"
 }
 
 
@@ -309,7 +333,8 @@ c_warning() {
 
   echo -e "--WARNING--- ${title} -------------${icon}--\n"
   echo -e "${text}\n"
-  c_key
+  c_cancel "$cancellabel"
+  c_handle_key "$oklabel" "$cancellabel"
 }
 
 
@@ -320,5 +345,6 @@ c_error() {
 
   echo -e "--ERROR----- ${title} -------------${icon}--\n"
   echo -e "${text}\n"
-  c_key
+  c_cancel "$cancellabel"
+  c_handle_key "$oklabel" "$cancellabel"
 }
