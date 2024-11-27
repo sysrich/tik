@@ -9,6 +9,7 @@ cenity() {
   cancel=true
   autoclose=false
   pulsate=false
+  ctrlc=false
   retvalue=0
   columns=()
   content=()
@@ -81,9 +82,9 @@ cenity() {
     if ! $cancel; then
       echo "No Cancel"
     else
-      echo "Cancelled"
-      retvalue=1
-      return $retvalue
+      echo "Cancelled, press Enter to continue"
+      ctrlc=true
+      return 1
     fi
   }
 
@@ -119,6 +120,11 @@ cenity() {
   fi
 
   eval $1='$result'
+
+  if $ctrlc; then
+    retvalue=1
+  fi
+
   return $retvalue
 }
 
@@ -233,8 +239,8 @@ c_list() {
   echo -e "\nPlease select a item number"
   read
 
-  retval=$(printf "%s" "${lines[$REPLY]}" | cut -d $'\t' -f1)
-  eval $1='$retval'
+  local selected=$(printf "%s" "${lines[$REPLY]}" | cut -d $'\t' -f1)
+  eval $1='$selected'
 }
 
 

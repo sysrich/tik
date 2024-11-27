@@ -25,10 +25,11 @@ d(){
         retval=0
         if $gui; then
             result="$(zenity "$@")" || retval=$?
+            log "[zenity][${retval}][${result}] $@"
         else
             cenity result "$@" || retval=$?
+            log "[cenity][${retval}][${result}] $@"
         fi
-        log "[zenity][${retval}][${result}] $@"
         case $retval in
             0)
                 return 0
