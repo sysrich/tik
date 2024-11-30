@@ -353,7 +353,10 @@ get_img() {
 reread_partitiontable() {
     # We've just done a lot to $TIK_INSTALL_DEVICE and it's probably a good idea to make sure the partition table is clearly read so tools like dracut dont get confused.
     log "[reread_partitiontable] Re-reading partition table"
+    # sleeps added to let the system finish doing partition stuff before rereading, and then a few secs to finish reading the table.  Honestly, I'm not sure the 2nd one is needed, but doesn't hurt, so *shrug*
+    sleep 3
     prun /usr/sbin/blockdev --rereadpt ${TIK_INSTALL_DEVICE}
+    sleep 3
 }
 
 create_keyfile() {
