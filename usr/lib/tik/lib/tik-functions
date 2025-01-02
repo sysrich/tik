@@ -5,7 +5,9 @@
 . /usr/lib/tik/lib/cenity
 
 log(){
-    echo "[${tik_module}][$(date +"%Y%m%d-%T")][LOG] $*" 1>&2
+    if $logging; then
+        echo "[${tik_module}][$(date +"%Y%m%d-%T")][LOG] $*" 1>&2
+    fi
 }
 
 warn() {
@@ -49,10 +51,11 @@ d_opt(){
     retval=0
     if $gui; then
         result="$(zenity "$@")" || retval=$?
+        log "[zenity][${retval}][${result}] $@"
     else
         cenity result "$@" || retval=$?
+        log "[cenity][${retval}][${result}] $@"
     fi
-    log "[zenity][${retval}][${result}] $@"
     return $retval
 }
 

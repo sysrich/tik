@@ -17,6 +17,7 @@ tik_module="tik"
 
 # Start logging
 exec 2> >(exec tee -i -a "${tik_log}" >&2)
+logging=true
 log "[START] $0"
 
 # Check for debug mode

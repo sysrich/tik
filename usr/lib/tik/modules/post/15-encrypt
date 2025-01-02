@@ -184,7 +184,9 @@ display_recoveryKey() {
     [ "${tik_encrypt_mode}" == 0 ] && message=${defaultmsg}
     [ "${tik_encrypt_mode}" == 1 ] && message=${fallbackmsg}
     log "[display_recoveryKey] displaying recovery key"
+    logging=false
     d --width=500 --height=500 --no-wrap --warning --icon=security-high-symbolic --title="Encryption Recovery Key" --text="${message}You may optionally scan the recovery key off screen:\n<span face='monospace'>$(qrencode ${key} -t UTF8i)</span>\nFor more information please visit <tt>https://aeondesktop.org/encrypt</tt>"
+    logging=true
     log "[display_recoveryKey] recovery key dialogue dismissed"
 }
 
@@ -193,6 +195,7 @@ add_key() {
         d --width=500 --height=300 --no-wrap --warning --icon=security-high-symbolic --title="Set Encryption Passphrase" --text="This ${TIK_OS_NAME} system is encrypted and will require a Passphrase on every boot\n\nYou will be prompted to set the Passphrase on the next screen\n\nFor more information please visit <tt>https://aeondesktop.org/encrypt</tt>"
         log "[add_key] Fallback Mode - Prompting user for passphrase for ${cryptpart}"
         # Not using 'd' function to avoid logging the password
+        # FIXME - Now use 'd' function and logging=false
         while true
         do
             if $gui; then
