@@ -107,13 +107,13 @@ configure_encryption() {
     # If Default mode has been detected, configure PCR policy
     if [ "${tik_encrypt_mode}" == 0 ]; then
         # Explaining the chosen PCR list below
-        # - 0 - UEFI firmware, will require recovery key after firmware update
         # - 4 - Bootloader and drivers, should never recovery key as bootloader should only be updated with new PCR measurements
         # - 5 - GPT Partition table, should never require recovery key as partition layout shouldn't change
         # - 7 - SecureBoot state, will require recovery key if SecureBoot is enabled/disabled
         # - 9 - initrd - should never require recovery key as initrd should only be updated with new PCR measurements
-        echo "FDE_SEAL_PCR_LIST=0,4,5,7,9" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
+        echo "FDE_SEAL_PCR_LIST=4,5,7,9" | prun tee ${encrypt_dir}/mnt/etc/sysconfig/fde-tools
         # Explaining why the following PCRs were not used
+        # - 0 - UEFI firmware, will require recovery key after firmware update and is particularly painful to re-enrol
         # - 1 - Not only changes with CPU/RAM/hardware changes, but also when UEFI config changes are made, which is too common to lockdown
         # - 2 - Includes option ROMs on pluggable hardware, such as external GPUs. Attaching a GPU to your laptop shouldn't hinder booting.
         # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
@@ -178,7 +178,7 @@ add_recoveryKey() {
 }
 
 display_recoveryKey() {
-    local defaultmsg="This ${TIK_OS_NAME} system is encrypted and checks its own integrity on every boot\nIn the event of these integrity checks failing, you will need to use the Recovery Key provided below to enter this system\n\nLikely reasons for integrity checks failing include:\n\n• UEFI System Firmware updated\n• Secure Boot changed from enabled or disabled\n• Boot drive was moved to a different computer\n• Disk partitions were changed\n• Boot loader or initrd were altered unexpectedly\n\nIf you are unaware as to why the system is requesting the recovery key, this systems security may have been compromised\nThe best course of action may be to not unlock the disk until you can determine what changed to require the Recovery Key\n\nThis systems Recovery Key is:\n\n        <b><big>${key}</big></b>\n\nPlease save this secret Recovery Key in a secure location\n\n"
+    local defaultmsg="This ${TIK_OS_NAME} system is encrypted and checks its own integrity on every boot\nIn the event of these integrity checks failing, you will need to use the Recovery Key provided below to enter this system\n\nLikely reasons for integrity checks failing include:\n\n• Secure Boot changed from enabled or disabled\n• Boot drive was moved to a different computer\n• Disk partitions were changed\n• Boot loader or initrd were altered unexpectedly\n\nIf you are unaware as to why the system is requesting the recovery key, this systems security may have been compromised\nThe best course of action may be to not unlock the disk until you can determine what changed to require the Recovery Key\n\nThis systems Recovery Key is:\n\n        <b><big>${key}</big></b>\n\nPlease save this secret Recovery Key in a secure location\n\n"
     local fallbackmsg="In addition to your Passphrase a Recovery Key has been generated:\n\n        <b><big>${key}</big></b>\n\nPlease save this secret Recovery Key in a secure location\nIt may be used to regain access to this system if the other Passphrase becomes lost or forgotten\n\n"
     local message
     [ "${tik_encrypt_mode}" == 0 ] && message=${defaultmsg}
