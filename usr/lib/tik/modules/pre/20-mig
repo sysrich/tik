@@ -109,7 +109,7 @@ if [ -z "${skipbackup}" ]; then
             if [ "${legacy_aeon}" == 1 ]; then
                 d --info --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic  --no-wrap --title="Message from the Aeon Team" --text="We'd like to thank you for adopting openSUSE Aeon so early in it's development,\nbefore we fully understood what we were building or how we wanted it to look\n\nWe are sorry that you need to reinstall your system\n\nThank you so much for your support.\nWe hope you enjoy the new look openSUSE Aeon"
             fi
-            d --question --no-wrap --title="Backup users from the existing install?" --text="These users will be restored to the new installation."
+            d_opt --question --no-wrap --title="Backup users from the existing install?" --text="These users will be restored to the new installation."
             migrateyn=$?
             if [ "${migrateyn}" == 0 ]; then
                 migrate=1
