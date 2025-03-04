@@ -299,7 +299,7 @@ get_img() {
     # $ProductName.$Version.raw.xz for block devices
     # $ProductName.$Version.raw for systemd-repart images
     # Any extraneous fields may confuse tik's detection, selection and presentation of the image to the user
-    for file_type in '*.raw.xz' '*.raw';do
+    for file_type in '*.raw.xz' '*.raw' '*.tar';do
         for img_meta in $(cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" ${file_type} | tr '	' ":"));do
             img_filename="$(echo $img_meta | cut -f1 -d:)"
             img_size="$(echo $img_meta | cut -f2 -d:)"
@@ -395,6 +395,9 @@ dump_image() {
         *.raw)
             dump_image_repart_image ${image_source_files} ${image_target}
             ;;
+        *.tar)
+            dump_image_repart_oci ${image_source_files} ${image_target}
+            ;;
         TIK_SELFDEPLOY)
             dump_image_repart_self ${image_target}
             ;;
@@ -434,6 +437,38 @@ dump_image_repart_image() {
     done
     if [ ${success} = 1 ]; then
         log "[dump_image_repart_image] systemd-repart succeeded after $attempt_num attempts"
+    else
+        error "systemd-repart failed"
+    fi
+}
+
+dump_image_repart_oci() {
+    local image_source_files=$1
+    local image_target=$2
+    local success=0
+    local max_attempts=5
+    local attempt_num=1
+    local oci_image
+    local oci_mount
+    create_keyfile
+    log "[dump_image_repart_oci] deploying ${TIK_IMG_DIR}/${image_source_files}"
+    oci_image=$(prun podman load --quiet -i ${TIK_IMG_DIR}/${image_source_files} | awk '{print $3}')
+    oci_mount=$(prun podman image mount ${oci_image})
+    # systemd-repart doesn't always parse the contents of the image perfectly first time, so retry a few times before declaring it a failure
+    while [ ${success} = 0 ] && [ ${attempt_num} -lt ${max_attempts} ]; do
+        prun-opt systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file=${tik_keyfile} --root=${oci_mount} --image-policy=root=unprotected ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
+        if [ ${retval} -eq 0 ]; then
+            success=1
+        else
+            # repart couldn't find a root partition
+            log "[dump_image_repart_oci] systemd-repart attempt $attempt_num failed. Trying again..."
+            sleep 1
+            # Increment the attempt counter
+            attempt_num=$(( attempt_num + 1 ))
+        fi
+    done
+    if [ ${success} = 1 ]; then
+        log "[dump_image_repart_oci] systemd-repart succeeded after $attempt_num attempts"
     else
         error "systemd-repart failed"
     fi
