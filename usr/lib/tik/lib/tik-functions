@@ -325,33 +325,34 @@ get_img() {
 #        )
 #        img_filename="$(echo $img_meta | cut -f1 -d:)"
 #        img_size="$(echo $img_meta | cut -f2 -d:)"
-        list_items="${list_items} ${img_filename} ${img_size}"
+#        list_items="${list_items} ${img_filename} ${img_size}"
         message="tik installation image set to to: ${img}"
         log "${message}"
     fi
-    if [ -z "${list_items}" ];then
-        TIK_INSTALL_IMAGE='TIK_SELFDEPLOY'
-    fi
-    img_list=${list_items}
-    if [ -n "${img_list}" ];then
-        local count=0
-        local img_index=0
-        for entry in ${img_list};do
-            if [ $((count % 2)) -eq 0 ];then
-                img_array[${img_index}]=${entry}
-                img_index=$((img_index + 1))
-            fi
-            count=$((count + 1))
-        done
-        if [ "${img_index}" -eq 1 ];then
-            # one single disk image found, use it
-            TIK_INSTALL_IMAGE="${img_array[0]}"
-        else
-            # manually select from storage list
-            d --list --column=Image --column=Size --title="Select A Image" --text="Select the operating system image to install.\n" ${list_items}
-            TIK_INSTALL_IMAGE="$result"
-        fi
-    fi
+#FIXME: Adjust for OCI
+#    if [ -z "${list_items}" ];then
+#        TIK_INSTALL_IMAGE='TIK_SELFDEPLOY'
+#    fi
+#    img_list=${list_items}
+#    if [ -n "${img_list}" ];then
+#        local count=0
+#        local img_index=0
+#        for entry in ${img_list};do
+#            if [ $((count % 2)) -eq 0 ];then
+#                img_array[${img_index}]=${entry}
+#                img_index=$((img_index + 1))
+#            fi
+#            count=$((count + 1))
+#        done
+#        if [ "${img_index}" -eq 1 ];then
+#            # one single disk image found, use it
+#            TIK_INSTALL_IMAGE="${img_array[0]}"
+#        else
+#            # manually select from storage list
+#            d --list --column=Image --column=Size --title="Select A Image" --text="Select the operating system image to install.\n" ${list_items}
+#            TIK_INSTALL_IMAGE="$result"
+#        fi
+#    fi
 }
 
 reread_partitiontable() {
