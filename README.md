@@ -1,6 +1,6 @@
 # tik
 
-Transactional Installation Kit - A toolkit for deploying Operating System images to UEFI hardware from a USB stick.
+Tailored Installation Kit - A toolkit for deploying Operating System images to UEFI hardware from a USB stick.
 
 ## General Premise
 
