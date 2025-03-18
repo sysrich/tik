@@ -458,7 +458,7 @@ dump_image_repart_oci() {
     oci_mount=$(prun podman image mount ${oci_image})
     # systemd-repart doesn't always parse the contents of the image perfectly first time, so retry a few times before declaring it a failure
     while [ ${success} = 0 ] && [ ${attempt_num} -lt ${max_attempts} ]; do
-        prun-opt systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file=${tik_keyfile} --root=${oci_mount} --image-policy=root=unprotected ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
+        prun-opt systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file=${tik_keyfile} --root=${oci_mount} --image-policy=root=unprotected --generate-fstab=/etc/fstab ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
         if [ ${retval} -eq 0 ]; then
             success=1
         else
