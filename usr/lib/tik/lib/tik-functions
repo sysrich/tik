@@ -457,8 +457,8 @@ dump_image_repart_oci() {
     oci_image=$(sed 's/OCI://' <<<${image_source_files})
     oci_container=$(prun podman create ${oci_image})
     oci_mount=$(prun podman mount ${oci_container})
-    #FIXME: Remove /etc/fstab from image if it exists so
-    prun-opt rm ${oci_mount}/etc/fstab
+    #FIXME: Move /etc/fstab from image if it exists so it can be reused later
+    prun-opt mv ${oci_mount}/etc/fstab ${oci_mount}/etc/fstab.orig
     # systemd-repart doesn't always parse the contents of the image perfectly first time, so retry a few times before declaring it a failure
     while [ ${success} = 0 ] && [ ${attempt_num} -lt ${max_attempts} ]; do
         prun-opt systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file=${tik_keyfile} --root=${oci_mount} --image-policy=root=unprotected --generate-fstab=/etc/fstab ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
