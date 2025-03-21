@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright 2024 SUSE LLC
+# SPDX-FileCopyrightText: Copyright 2024 Richard Brown
+
+# Module that takes a deployed system from UCPoC OCI image and makes it bootable
+
+ucpoc_dir=/var/lib/tik/ucpoc
+ucpoc_pipe=/tmp/ucpocpipe
+if [ ! -d ${ucpoc_dir}/mnt ]; then
+    prun /usr/bin/mkdir -p ${ucpoc_dir}/mnt
+fi
+if [ ! -p ${ucpoc_pipe} ]; then
+    mkfifo ${ucpoc_pipe}
+fi
+
+ucpoc_progress() {
+    log "[ucpoc_progress] Monitoring UCPoC progress"
+    (tail -f ${ucpoc_pipe}) | d --progress --title="Configuring UC" --auto-close --no-cancel --width=400
+    rm ${ucpoc_pipe}
+    log "[ucpoc_progress] UCPoC progress reached 100%"
+}
+
+find_root() {
+    echo "# Finding root partition" > ${ucpoc_pipe}
+    log "[find_root] finding root partition"
+    probe_partitions ${TIK_INSTALL_DEVICE} "btrfs"
+    if [ -z "${probedpart}" ]; then
+        error "encrypted partition not found"
+    fi
+    rootpart=${probedpart}
+    log "[find_root] found ${rootpart}"
+    echo "14" > ${ucpoc_pipe}
+}
+
+find_esp() {
+    echo "# Finding ESP partition" > ${ucpoc_pipe}
+    log "[find_esp] finding ESP"
+    probe_partitions ${TIK_INSTALL_DEVICE} "vfat"
+    if [ -z "${probedpart}" ]; then
+        error "esp partition not found"
+    fi
+    esppart=${probedpart}
+    log "[find_esp] found ${esppart}"
+    echo "28" > ${ucpoc_pipe}
+}
+
+open_partition() {
+    echo "# Mounting ${rootpart}" > ${ucpoc_pipe}
+    log "[open_partition] mounting ${rootpart} for chroot"
+    echo "35" > ${ucpoc_pipe}
+    prun /usr/bin/mount ${rootpart} ${ucpoc_dir}/mnt
+    for i in proc dev sys tmp 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
+        prun /usr/bin/mount --bind "/$i" "${ucpoc_dir}/mnt/$i"
+    done
+    prun /usr/bin/mount -o subvol=/@/.snapshots ${rootpart} ${ucpoc_dir}/mnt/.snapshots
+    prun /usr/bin/mount -o subvol=/@/var ${rootpart} ${ucpoc_dir}/mnt/var
+    etcmountcmd=$(cat ${ucpoc_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${ucpoc_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${ucpoc_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
+    eval prun "$etcmountcmd"
+    prun /usr/bin/mount ${esppart} ${ucpoc_dir}/mnt/boot/efi
+    prun /usr/bin/mount -t tmpfs tmpfs "${ucpoc_dir}/mnt/run"
+    prun /usr/bin/mount -t securityfs securityfs "${ucpoc_dir}/mnt/sys/kernel/security"
+    echo "42" > ${ucpoc_pipe}
+}
+
+configure_ucpoc() {
+    echo "# Merging fstab and fstab.orig" > ${ucpoc_pipe}
+    log "[configure_ucpoc] Merging fstab and fstab.org"
+    /usr/bin/cat ${ucpoc_dir}/mnt/etc/fstab.orig | prun tee -a ${ucpoc_dir}/mnt/etc/fstab
+    echo "# Configuring grub2" > ${ucpoc_pipe}
+    prun /usr/bin/chroot ${ucpoc_dir}/mnt grub2-mkconfig -o /boot/grub2/grub.cfg
+    echo "56" > ${ucpoc_pipe}
+    echo "# Installing bootloader" > ${ucpoc_pipe}
+    prun /usr/bin/chroot ${ucpoc_dir}/mnt shim-install --config-file=/boot/grub2/grub.cfg
+    echo "70" > ${ucpoc_pipe}
+}
+
+close_partition() {
+    echo "# Closing ${rootpart}" > ${ucpoc_pipe}
+    log "[close_partition] unmounting and closing ${rootpart}"
+    for i in proc dev run tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' 'sys/fs/cgroup' sys; do
+        prun /usr/bin/umount "${ucpoc_dir}/mnt/$i"
+    done
+    prun /usr/bin/umount ${ucpoc_dir}/mnt
+    echo "100" > ${ucpoc_pipe}
+}
+
+ucpoc_progress &
+find_root
+find_esp
+open_partition
+configure_ucpoc
+close_partition
