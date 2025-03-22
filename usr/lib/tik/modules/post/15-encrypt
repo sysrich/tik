@@ -99,11 +99,6 @@ configure_encryption() {
     echo "# Creating initrd" > ${encrypt_pipe}
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, override the problematic option temporarily
     /usr/bin/echo 'hostonly_cmdline="no"' | prun tee ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
-    # mkinitrd done by add-all-kernels
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
-    # FIXME: Dracut gets confused by previous installations on occasion with the default config, remove override now initrd done
-    prun /usr/bin/rm ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
-    echo "70" > ${encrypt_pipe}
     # If Default mode has been detected, configure PCR policy
     if [ "${tik_encrypt_mode}" == 0 ]; then
         # Explaining the chosen PCR list below
@@ -117,6 +112,14 @@ configure_encryption() {
         # - 1 - Not only changes with CPU/RAM/hardware changes, but also when UEFI config changes are made, which is too common to lockdown
         # - 2 - Includes option ROMs on pluggable hardware, such as external GPUs. Attaching a GPU to your laptop shouldn't hinder booting.
         # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
+    fi
+    # mkinitrd done by add-all-kernels
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
+    # FIXME: Dracut gets confused by previous installations on occasion with the default config, remove override now initrd done
+    prun /usr/bin/rm ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
+    echo "70" > ${encrypt_pipe}
+    # If Default mode has been detected, update predictions and enroll
+    if [ "${tik_encrypt_mode}" == 0 ]; then
         prun /usr/bin/tee ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service << EOF
 [Unit]
 Description=First Boot Update Predictions
