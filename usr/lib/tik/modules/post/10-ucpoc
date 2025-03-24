@@ -84,6 +84,7 @@ close_partition() {
     done
     prun /usr/bin/umount ${ucpoc_dir}/mnt
     echo "100" > ${ucpoc_pipe}
+    efi_already_set=1
 }
 
 ucpoc_progress &
