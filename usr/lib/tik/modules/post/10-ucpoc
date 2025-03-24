@@ -59,6 +59,7 @@ open_partition() {
     prun /usr/bin/mount ${esppart} ${ucpoc_dir}/mnt/boot/efi
     prun /usr/bin/mount -t tmpfs tmpfs "${ucpoc_dir}/mnt/run"
     prun /usr/bin/mount -t securityfs securityfs "${ucpoc_dir}/mnt/sys/kernel/security"
+    prun /usr/sbin/btrfs property set -f -ts ${ucpoc_dir}/mnt ro false
     echo "42" > ${ucpoc_pipe}
 }
 
@@ -77,6 +78,7 @@ configure_ucpoc() {
 close_partition() {
     echo "# Closing ${rootpart}" > ${ucpoc_pipe}
     log "[close_partition] unmounting and closing ${rootpart}"
+    prun /usr/sbin/btrfs property set -f -ts ${ucpoc_dir}/mnt ro true
     for i in proc dev run tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' 'sys/fs/cgroup' sys; do
         prun /usr/bin/umount "${ucpoc_dir}/mnt/$i"
     done
