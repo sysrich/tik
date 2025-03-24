@@ -63,9 +63,9 @@ open_partition() {
 }
 
 configure_ucpoc() {
-    echo "# Merging fstab and fstab.orig" > ${ucpoc_pipe}
-    log "[configure_ucpoc] Merging fstab and fstab.org"
-    /usr/bin/cat ${ucpoc_dir}/mnt/etc/fstab.orig | prun tee -a ${ucpoc_dir}/mnt/etc/fstab
+    echo "# Merging fstab.repart and fstab" > ${ucpoc_pipe}
+    log "[configure_ucpoc] Merging fstab.repart and fstab"
+    /usr/bin/cat ${ucpoc_dir}/mnt/etc/fstab.repart | prun tee -a ${ucpoc_dir}/mnt/etc/fstab
     echo "# Configuring grub2" > ${ucpoc_pipe}
     prun /usr/bin/chroot ${ucpoc_dir}/mnt grub2-mkconfig -o /boot/grub2/grub.cfg
     echo "56" > ${ucpoc_pipe}
