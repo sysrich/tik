@@ -93,13 +93,11 @@ configure_encryption() {
     cryptUUID=$(lsblk -n -r -d -o UUID ${cryptpart})
     echo "aeon_root UUID=${cryptUUID} none x-initrd.attach${crypttab_opts}" | prun tee ${encrypt_dir}/mnt/etc/crypttab
     echo "# Installing boot loader" > ${encrypt_pipe}
-    # Populate ESP
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2
-    echo "56" > ${encrypt_pipe}
-    echo "# Creating initrd" > ${encrypt_pipe}
-    # FIXME: Dracut gets confused by previous installations on occasion with the default config, override the problematic option temporarily
-    /usr/bin/echo 'hostonly_cmdline="no"' | prun tee ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
-    # If Default mode has been detected, configure PCR policy
+    # If Default mode has been detected, configure PCR policy. In this case,
+    # `etc/sysconfig/fde-tools` must be created before any calls to sdbtools,
+    # because sdbootutil expects at least one of the configuration files being
+    # present. See
+    # https://github.com/openSUSE/sdbootutil/commit/8d3db8b01f5681c11054c37145aad3e3973a7741
     if [ "${tik_encrypt_mode}" == 0 ]; then
         # Explaining the chosen PCR list below
         # - 4 - Bootloader and drivers, should never recovery key as bootloader should only be updated with new PCR measurements
@@ -113,6 +111,12 @@ configure_encryption() {
         # - 2 - Includes option ROMs on pluggable hardware, such as external GPUs. Attaching a GPU to your laptop shouldn't hinder booting.
         # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
     fi
+    # Populate ESP
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2
+    echo "56" > ${encrypt_pipe}
+    echo "# Creating initrd" > ${encrypt_pipe}
+    # FIXME: Dracut gets confused by previous installations on occasion with the default config, override the problematic option temporarily
+    /usr/bin/echo 'hostonly_cmdline="no"' | prun tee ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
     # mkinitrd done by add-all-kernels
     prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, remove override now initrd done
