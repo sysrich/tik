@@ -139,8 +139,6 @@ ExecStart=/usr/bin/sdbootutil update-predictions
 WantedBy=default.target
 EOF
         prun /usr/bin/ln -s ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service ${encrypt_dir}/mnt/etc/systemd/system/default.target.wants/firstboot-update-predictions.service
-        log "[configure_encryption] Generating machine-id"
-        prun /usr/bin/chroot ${encrypt_dir}/mnt systemd-machine-id-setup --commit
         log "[configure_encryption] Generating Predictions"
         echo "# Generating TPM Predictions" > ${encrypt_pipe}
         prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv update-predictions
