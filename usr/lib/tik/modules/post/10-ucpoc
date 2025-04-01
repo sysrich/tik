@@ -23,7 +23,8 @@ ucpoc_progress() {
 find_root() {
     echo "# Finding root partition" > ${ucpoc_pipe}
     log "[find_root] finding root partition"
-    probe_partitions ${TIK_INSTALL_DEVICE} "btrfs"
+    #FIXME probe_partitions ${TIK_INSTALL_DEVICE} "btrfs"
+    probedpart="/dev/vda4"
     if [ -z "${probedpart}" ]; then
         error "encrypted partition not found"
     fi
@@ -35,7 +36,8 @@ find_root() {
 find_esp() {
     echo "# Finding ESP partition" > ${ucpoc_pipe}
     log "[find_esp] finding ESP"
-    probe_partitions ${TIK_INSTALL_DEVICE} "vfat"
+    #FIXME probe_partitions ${TIK_INSTALL_DEVICE} "vfat"
+    probedpart="/dev/vda2"
     if [ -z "${probedpart}" ]; then
         error "esp partition not found"
     fi
