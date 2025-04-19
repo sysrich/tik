@@ -148,154 +148,159 @@ probe_partitions() {
     prun /usr/bin/rmdir "${probe_dir}/mnt"
 }
 
+bytes_to_human() {
+    # Usage: bytes_to_human <bytes>
+    numfmt --to=iec --suffix=B "$1"
+}
+
+free_bytes_on_disk() {
+    local disk_in="$1"
+    local disk
+    local disk_size free_bytes
+
+    # Resolve /dev/disk/by‑id/* -> /dev/sdX /dev/nvme…
+    disk=$(readlink -f "${disk_in}")
+
+    # Whole‑device size in bytes
+    disk_size=$(prun /usr/sbin/blockdev --getsize64 "${disk}")
+
+    # Sum the sizes whose 5‑th field begins with 'free'
+    local parted_output
+    parted_output=$(prun /usr/sbin/parted -m -s "${disk}" unit B print free)
+    free_bytes=$(awk -F: '$5~/^free/ {gsub(/B/,"",$4); sum+=$4} END{print sum+0}' <<< "$parted_output")
+
+    # log for debugging
+    log "[free_bytes_on_disk] ${disk}: free space: ${free_bytes}"
+    log "[free_bytes_on_disk] ${disk}: disk size: ${disk_size}"
+
+    echo "${free_bytes:-0}"
+}
+
+
 get_disk() {
-    # Volume label for the tik install media must be set to "TIKINSTALL" to filter it out from the device list
+    # config: set TIK_SHOW_FREE_SPACE="true" to show free rows
+    if [[ "${TIK_SHOW_FREE_SPACE:-}" == "true" ]]; then
+        show_free=1
+    fi
+
+    # constants / locals
     tik_volid="TIKINSTALL"
     local disk_id="by-id"
-    local disk_size
-    local disk_device
-    local disk_device_by_id
-    local disk_meta
-    local disk_list
-    local device_array
-    local list_items
-    local blk_opts="-p -n -r -o NAME,SIZE,TYPE"
-    local message
-    local blk_opts_plus_label="${blk_opts},LABEL"
-    local tik_install_disk_part
-    local part_meta
-    local part_count
-    local part_size
-    local part_info
-    local part_fs
-    local blk_opts_part_info="${blk_opts_plus_label},FSTYPE"
-    local usb_match_1="usb"
-    local usb_match_2=":0"
+    local disk_size disk_device disk_device_by_id
+    local disk_meta disk_list
+    local -a list_items
+    local part_count part_size part_info part_fs
+    # shellcheck disable=SC2054
+    local blk_opts=(-p -n -r -o NAME,SIZE,TYPE)
+    # shellcheck disable=SC2054
+    local blk_opts_plus_label=(-p -n -r -o NAME,SIZE,TYPE,LABEL)
+    # shellcheck disable=SC2054
+    local blk_opts_part_info=(-p -n -r -o NAME,SIZE,TYPE,LABEL,FSTYPE)
+    local usb_match_1="usb"  usb_match_2=":0"
 
-    tik_install_disk_part=$(
-        eval lsblk "${blk_opts_plus_label}" | \
-        tr -s ' ' ":" | \
-        grep ":${tik_volid}" | \
-        cut -f1 -d:
-    )
+    # identify the install media so we can ignore it
+    tik_install_disk_part=$(lsblk "${blk_opts_plus_label[@]}" | tr -s ' ' ":" \
+                            | grep ":${tik_volid}" | cut -f1 -d:)
 
-    for disk_meta in $(
-        eval lsblk "${blk_opts}" | grep -E "disk|raid" | tr ' ' ":"
-    );do
-        disk_size=$(echo "${disk_meta}" | cut -f2 -d:)
-        if [[ "${disk_size}" == "0B" ]]; then
-            # ignore disks with no size, e.g. empty SD card readers
+    # iterate over every real disk
+    for disk_meta in $(lsblk "${blk_opts[@]}" | grep -E "disk|raid" | tr ' ' ":"); do
+        disk_size=$(echo "$disk_meta" | cut -f2 -d:)
+        [[ "$disk_size" == "0B" ]] && continue # empty readers
+
+        disk_device=$(echo "$disk_meta" | cut -f1 -d:)
+        [[ $disk_device =~ ^/dev/fd   || $disk_device =~ ^/dev/zram ]] && continue
+        [[ "$tik_install_disk_part" == "$disk_device"*   ]] && continue  # skip media
+
+        # partition summary for the disk row
+        part_count=0; part_info=""
+        while IFS=: read -r _ part_size _ _ part_fs; do
+            part_count=$((part_count + 1))
+            part_info+="${part_info:+,}${part_fs:-unknown}(${part_size})"
+        done < <(lsblk "${blk_opts_part_info[@]}" | grep -E "${disk_device}.+part.+" | tr ' ' ":")
+
+        [[ $part_count -eq 0 ]] && part_info="none"
+
+        # prefer /dev/disk/by-id/ symlink
+        disk_device_by_id=$(get_persistent_device_from_unix_node \
+                            "$disk_device" "$disk_id")
+
+        # skip USB install targets unless explicitly allowed
+        if [[ "${TIK_ALLOW_USB_INSTALL_DEVICES}" -ne 1 ]] && \
+           { [[ "$disk_device_by_id" == *"$usb_match_1"* ]] || \
+           [[ "$disk_device_by_id" == *"$usb_match_2"* ]]; }; then
             continue
         fi
-        disk_device="$(echo "${disk_meta}" | cut -f1 -d:)"
-        # find partitions and info for this disk
-        part_count=0
-        part_info=""
-        for part_meta in $(
-            eval lsblk "${blk_opts_part_info}" | grep -E "${disk_device}.+part.+" | tr ' ' ":"
-        );do
-            part_count=$(expr $part_count + 1)
-            part_size=$(echo "${part_meta}" | cut -f2 -d:)
-            part_fs=$(echo "${part_meta}" | cut -f5 -d:)
-            if [ -n "${part_info}" ]; then
-                part_info="${part_info},"
+        [[ -n $disk_device_by_id ]] && disk_device=$disk_device_by_id
+
+        # normal whole‑disk entry
+        list_items+=("$(basename "$disk_device")" "$disk_size" "$part_count" "$part_info")
+        disk_list+=" $(basename "$disk_device") $disk_size"
+
+        # optional free‑space entry
+        if (( show_free )); then
+            free_bytes=$(free_bytes_on_disk "$disk_device")
+            disk_bytes=$(lsblk -b -n -d -o SIZE "$disk_device")
+            diff_bytes=$(( disk_bytes - free_bytes ))
+
+            if (( free_bytes >= 10*1024*1024*1024 && diff_bytes > 1024*1024*1024 )); then
+                free_human=$(bytes_to_human "$free_bytes")
+                list_items+=("free-$(basename "$disk_device")" "$free_human" "free" "free")
             fi
-            if [ -n "${part_fs}" ]; then
-                part_info="${part_info}${part_fs}(${part_size})"
-            else
-                part_info="${part_info}unknown(${part_size})"
-            fi
-        done
-        if [[ ${part_count} -eq 0 ]]; then
-            part_info="none"
         fi
-        if [[ "${tik_install_disk_part}" == "${disk_device}"* ]]; then
-            # ignore install source device
-            continue
-        fi
-        if [[ ${disk_device} =~ ^/dev/fd ]];then
-            # ignore floppy disk devices
-            continue
-        fi
-        if [[ ${disk_device} =~ ^/dev/zram ]];then
-            # ignore zram devices
-            continue
-        fi
-        disk_device_by_id=$(
-            get_persistent_device_from_unix_node "${disk_device}" "${disk_id}"
-        )
-        if [[ ( "${TIK_ALLOW_USB_INSTALL_DEVICES}" -ne 1 ) && ( "{$disk_device_by_id}" == *"${usb_match_1}"* || "{$disk_device_by_id}" == *"${usb_match_2}"* ) ]]; then
-            # ignore USB devices if TIK_ALLOW_USB_INSTALL_DEVICES not set in config
-            continue
-        fi
-        if [ -n "${disk_device_by_id}" ];then
-            disk_device=${disk_device_by_id}
-        fi
-        list_items="${list_items} $(basename ${disk_device}) ${disk_size} ${part_count} ${part_info}"
-        disk_list="${disk_list} $(basename ${disk_device}) ${disk_size}"
     done
-    if [ -n "${TIK_INSTALL_DEVICE}" ];then
-        # install device overwritten by config.
-        local device=${TIK_INSTALL_DEVICE}
-        local device_meta
-        local device_size
-        if [ ! -e "${device}" ];then
-            local no_dev="Given device <tt>${device}</tt> does not exist."
-            error "${no_dev}"
-        fi
-        if [ ! -b "${device}" ];then
-            local no_block_dev="Given device <tt>${device}</tt> is not a block special."
-            error "${no_block_dev}"
-        fi
-        device_meta=$(
-            eval lsblk "${blk_opts}" "${device}" |\
-            grep -E "disk|raid" | tr ' ' ":"
-        )
-        device_size=$(echo "${device_meta}" | cut -f2 -d:)
-        # this case is not shown in manual selection, threfore we don't need partition info        
-        list_items="$(basename ${device}) ${device_size}"
-        disk_list="$(basename ${device}) ${device_size}"
-        message="tik installation device set to to: ${device}"
-        log "${message}"
-    fi
-    if [ -z "${list_items}" ];then
-        local no_device_text="No device(s) for installation found."
-        error "${no_device_text}"
-    fi
-    if [ -n "${disk_list}" ];then
-        local count=0
-        local device_index=0
-        for entry in ${disk_list};do
-            if [ $((count % 2)) -eq 0 ];then
-                device_array[${device_index}]=${entry}
-                device_index=$((device_index + 1))
-            fi
-            count=$((count + 1))
-        done
-        if [ "${device_index}" -eq 1 ];then
-            # one single disk device found, use it
-            # Add back full path to it
-            TIK_INSTALL_DEVICE="/dev/disk/${disk_id}/${device_array[0]}"
 
-            # Fallback to unix device in case by-id does not exist
-            # see get_persistent_device_from_unix_node, it does fallback like this.
-            if [ ! -e "${TIK_INSTALL_DEVICE}" ]; then
-                TIK_INSTALL_DEVICE="/dev/${device_array[0]}"
+    # CONFIG OVERRIDE: $TIK_INSTALL_DEVICE supplied by user / config file
+    if [[ -n ${TIK_INSTALL_DEVICE:-} ]]; then
+        local device=$TIK_INSTALL_DEVICE device_size device_meta
+        [[ -e $device ]] || error "Given device <tt>$device</tt> does not exist."
+        [[ -b $device ]] || error "Given device <tt>$device</tt> is not a block special."
+
+        device_meta=$(lsblk "${blk_opts[@]}" "$device" | grep -E "disk|raid" | tr ' ' ":")
+        device_size=$(echo "$device_meta" | cut -f2 -d:)
+
+        list_items=("$(basename "$device")" "$device_size")
+        disk_list="$(basename "$device") $device_size"
+        if [ -z "$REPART_EMPTY" ]; then
+            REPART_EMPTY="force"
+        fi
+        log "tik installation device set to: $device"
+    else
+        # sanity check
+        [[ -z "${list_items[*]}" ]] && error "No device(s) for installation found."
+        
+        # build chooser / auto‑select logic
+        local selectable_count=$(( $(echo "${list_items[*]}" | wc -w) / 4 ))
+        
+        if (( selectable_count > 1 )); then
+            d --list --column=Disk --column=Size --column=Partitions --column=Filesystems \
+              --width=1050 --height=340 \
+              --title="Select A Disk${show_free:+ or Free Space}" \
+              --text="Choose <b>either</b> a full disk${show_free:+ or a free‑space entry}.\n" \
+              "${list_items[@]}"
+        
+            if (( show_free )) && [[ $result =~ ^free- ]]; then
+                log "[get_disk] free space on disk selected"
+                REPART_EMPTY="refuse"
+                base_result=${result#free-}
+                TIK_INSTALL_DEVICE="/dev/disk/$disk_id/$base_result"
+                [[ ! -e $TIK_INSTALL_DEVICE ]] && TIK_INSTALL_DEVICE="/dev/$base_result"
+            else
+                log "[get_disk] full disk selected"
+                REPART_EMPTY="force"
+                TIK_INSTALL_DEVICE="/dev/disk/$disk_id/$result"
+                [[ ! -e $TIK_INSTALL_DEVICE ]] && TIK_INSTALL_DEVICE="/dev/$result"
             fi
         else
-            # manually select from storage list
-            d --list --column=Disk --column=Size --column=Partitions --column=Filesystems --width=1050 --height=340 --title="Select A Disk" --text="Select the disk to install the operating system to. <b>Make sure any important documents and files have been backed up.</b>\n" ${list_items}
-            # Add back full path to it
-            TIK_INSTALL_DEVICE="/dev/disk/${disk_id}/${result}"
-
-            # Fallback to unix device in case by-id does not exist
-            # see get_persistent_device_from_unix_node, it does fallback like this.
-            if [ ! -e "${TIK_INSTALL_DEVICE}" ]; then
-                TIK_INSTALL_DEVICE="/dev/${result}"
-            fi
+            # only one candidate -> choose automatically
+            log "[get_disk] only one disk available"
+            read -r entry _ <<<"$disk_list"
+            REPART_EMPTY="force"
+            TIK_INSTALL_DEVICE="/dev/disk/$disk_id/$entry"
+            [[ ! -e $TIK_INSTALL_DEVICE ]] && TIK_INSTALL_DEVICE="/dev/$entry"
         fi
     fi
 }
+
 
 get_img() {
     local list_items
@@ -396,20 +401,20 @@ dump_image() {
     local image_source_files=$1
     local image_target=$2
 
-    d --question --no-wrap --title="Begin Installation?" --text="Once the installation begins the changes to the selected disk are irreversible.\n\n<b>Proceeding will fully erase the disk.</b>\n\nContinue with installation?"
+    local warn_text
+    if [ "${REPART_EMPTY}" = "refuse" ]; then
+        warn_text="Once the installation begins the changes to the selected disk are irreversible.\n\nThe system will be installed into the <b>existing free space</b> on the disk.\n\nThis setup receives <b>less official support</b> than a full‑disk installation and <b>might lead to an unbootable system or destroy other systems installed on this disk.</b>\n\nEnsure all data on this disk is backed up.\n\nContinue?"
+    else
+        warn_text="Once the installation begins the changes to the selected disk are irreversible.\n\n<b>Proceeding will fully erase the disk.</b>\n\nEnsure all data on this disk is backed up.\n\nContinue with installation?"
+    fi
+
+    d --question --no-wrap --title="Begin Installation?" --text="${warn_text}"
 
     case "${image_source_files}" in
-        *.raw.xz)
-            dump_image_dd ${image_source_files} ${image_target}
-            ;;
-        *.raw)
-            dump_image_repart_image ${image_source_files} ${image_target}
-            ;;
-        TIK_SELFDEPLOY)
-            dump_image_repart_self ${image_target}
-            ;;
-        *)
-            error "invalid image type provided"
+        *.raw.xz)        dump_image_dd           "${image_source_files}" "${image_target}" ;;
+        *.raw)           dump_image_repart_image "${image_source_files}" "${image_target}" ;;
+        TIK_SELFDEPLOY)  dump_image_repart_self  "${image_target}" ;;
+        *)               error "invalid image type provided" ;;
     esac
 }
 
@@ -424,36 +429,44 @@ dump_image_dd() {
 dump_image_repart_image() {
     local image_source_files=$1
     local image_target=$2
-    local success=0
-    local max_attempts=5
-    local attempt_num=1
+    local success=0 max_attempts=5 attempt_num=1
+
     create_keyfile
     log "[dump_image_repart_image] deploying ${TIK_IMG_DIR}/${image_source_files}"
-    # systemd-repart doesn't always parse the contents of the image perfectly first time, so retry a few times before declaring it a failure
-    while [ ${success} = 0 ] && [ ${attempt_num} -lt ${max_attempts} ]; do
-        prun-opt systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file=${tik_keyfile} --image=${TIK_IMG_DIR}/${image_source_files} --image-policy=root=unprotected ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
-        if [ ${retval} -eq 0 ]; then
+
+    while [ "${success}" = 0 ] && [ "${attempt_num}" -lt "${max_attempts}" ]; do
+        prun-opt systemd-repart --no-pager --pretty=0 --dry-run=no \
+                --key-file="${tik_keyfile}" \
+                --image="${TIK_IMG_DIR}"/"${image_source_files}" \
+                --image-policy=root=unprotected \
+                --empty="${REPART_EMPTY}" \
+                "${image_target}" \
+                > >(d --progress --title="Installing ${TIK_OS_NAME}" \
+                     --text="Deploying OS Image" --pulsate --auto-close --no-cancel \
+                     --width=400)
+        if [ "${retval}" -eq 0 ]; then
             success=1
         else
-            # repart couldn't find a root partition
-            log "[dump_image_repart_image] systemd-repart attempt $attempt_num failed. Trying again..."
-            sleep 1
-            # Increment the attempt counter
-            attempt_num=$(( attempt_num + 1 ))
+            log "[dump_image_repart_image] attempt $attempt_num failed – retry"
+            sleep 1; attempt_num=$(( attempt_num + 1 ))
         fi
     done
-    if [ ${success} = 1 ]; then
-        log "[dump_image_repart_image] systemd-repart succeeded after $attempt_num attempts"
-    else
-        error "systemd-repart failed"
-    fi
+
+    [ "${success}" = 1 ] || error "systemd-repart failed"
 }
 
 dump_image_repart_self() {
     local image_target=$1
     create_keyfile
-    log "[dump_image_repart_self] self-deploying"
-    prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file=${tik_keyfile} ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
+    log "[dump_image_repart_self] self‑deploying"
+
+    prun systemd-repart --no-pager --pretty=0 --dry-run=no \
+        --key-file="${tik_keyfile}" \
+        --empty="${REPART_EMPTY}" \
+        "${image_target}" \
+        > >(d --progress --title="Installing ${TIK_OS_NAME}" \
+             --text="Deploying OS Image" --pulsate --auto-close --no-cancel \
+             --width=400)
 }
 
 set_boot_target() {
