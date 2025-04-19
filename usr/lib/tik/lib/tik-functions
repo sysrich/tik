@@ -105,37 +105,47 @@ probe_partitions() {
     local filematch=$3
     local device=$1
     local mountops
-    local part
+    local line
+    local id
+    local parttypename
+    local fstype
+
     if [[ "${filesystem_type}" == "btrfs" ]]; then
         mountops="-o compress=zstd:1"
     fi
     prun /usr/bin/mkdir -p ${probe_dir}/mnt
     probedpart=""
-    for part in $(lsblk ${device} -p -n -r -o ID-LINK,FSTYPE|tr -s ' ' ";"|grep ";${filesystem_type}"|cut -d\; -f1); do
-        if [ -z ${filematch} ]; then
-            log "[probe_partitions] no file match required"
-            # Fallback to unix device in order to fix issue with USB devices
-            probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
-            log "[probe_partitions] Partition ${probedpart} found"
-        else    # Check if ${filematch} exists
-            # Fallback to unix device in order to fix issue with USB devices
-            part="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
-            prun /usr/bin/mount ${mountops} ${part} "${probe_dir}/mnt"
-            if [ -f ${probe_dir}/mnt/${filematch} ]; then
-                log "[probe_partitions] File ${filematch} found"
-                 # Fallback to unix device in order to fix issue with USB devices
-                probedpart="${part}"
+    # List ID-LINK, PARTTYPENAME, and FSTYPE separated by a semicolon
+    # (Note: we assume that neither the PARTTYPENAME nor the FSTYPE contain semicolons.)
+    for line in $(lsblk "${device}" -p -n -r -o ID-LINK,PARTTYPENAME,FSTYPE | tr -s ' ' ";"); do
+        # Split the line into three variables
+        id=$(echo "$line" | cut -d";" -f1)
+        parttypename=$(echo "$line" | cut -d";" -f2)
+        fstype=$(echo "$line" | cut -d";" -f3)
+
+        # Check if either PARTTYPENAME or FSTYPE matches the filesystem type
+        if [ "$parttypename" = "$filesystem_type" ] || [ "$fstype" = "$filesystem_type" ]; then
+            if [ -z "${filematch}" ]; then
+                log "[probe_partitions] no file match required"
+                probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/${id}")"
                 log "[probe_partitions] Partition ${probedpart} found"
-                if grep -q 'PRETTY_NAME="openSUSE MicroOS"' ${probe_dir}/mnt/${filematch} && [ -f ${probe_dir}/mnt/usr/bin/gnome-shell ]; then
-                    # Found legacy Aeon, activate easter egg
-                    log "Legacy Aeon Install FOUND"
-                    legacy_aeon=1
+            else
+                probed_part="$(/usr/bin/readlink -f "/dev/disk/by-id/${id}")"
+                prun /usr/bin/mount ${mountops} ${probed_part} "${probe_dir}/mnt"
+                if [ -f "${probe_dir}/mnt/${filematch}" ]; then
+                    log "[probe_partitions] File ${filematch} found"
+                    probedpart="${probed_part}"
+                    log "[probe_partitions] Partition ${probedpart} found"
+                    if grep -q 'PRETTY_NAME="openSUSE MicroOS"' "${probe_dir}/mnt/${filematch}" && [ -f "${probe_dir}/mnt/usr/bin/gnome-shell" ]; then
+                        log "Legacy Aeon Install FOUND"
+                        legacy_aeon=1
+                    fi
                 fi
+                prun-opt /usr/bin/umount "${probe_dir}/mnt"
             fi
-            prun-opt /usr/bin/umount ${probe_dir}/mnt
         fi
     done
-    prun /usr/bin/rmdir ${probe_dir}/mnt
+    prun /usr/bin/rmdir "${probe_dir}/mnt"
 }
 
 get_disk() {
@@ -373,7 +383,7 @@ create_keyfile() {
 wipe_keyfile() {
     # We made a keyfile and need to clean it up at the end of the installation, possibly wiping it from the newly installed device
     log "[wipe_keyfile] Deleting keyfile ${tik_keyfile}"
-    probe_partitions ${TIK_INSTALL_DEVICE} "crypto_LUKS"
+    probe_partitions "${TIK_INSTALL_DEVICE}" "Linux\x20root\x20(x86-64)"
     if [ -n "${probedpart}" ]; then
         # Assumes Slot 0 is always by the key-file at enrolment
         prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --wipe-slot=0 ${probedpart}
@@ -457,7 +467,7 @@ set_boot_target() {
         prun-opt /usr/sbin/efibootmgr -B -L "openSUSE Boot Manager"
         prun /usr/sbin/efibootmgr -O
         log "[set_boot_target] searching for ESP partition containing /EFI/systemd/shim.efi on ${TIK_INSTALL_DEVICE}"
-        probe_partitions ${TIK_INSTALL_DEVICE} "vfat" "/EFI/systemd/shim.efi"
+        probe_partitions "${TIK_INSTALL_DEVICE}" "EFI\x20System" "/EFI/systemd/shim.efi"
         if [ -z "${probedpart}" ]; then
             error "esp partition not found"
         fi
