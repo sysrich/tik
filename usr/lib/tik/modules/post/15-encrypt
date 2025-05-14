@@ -98,12 +98,18 @@ configure_encryption() {
     cryptUUID=$(lsblk -n -r -d -o UUID ${cryptpart})
     echo "aeon_root UUID=${cryptUUID} none x-initrd.attach${crypttab_opts}" | prun tee ${encrypt_dir}/mnt/etc/crypttab
     echo "# Installing boot loader" > ${encrypt_pipe}
-    # If Default mode has been detected, configure PCR policy. In this case,
+    # If Default mode has been detected, configure PCR policy and PCR15 keys.
     # `etc/sysconfig/fde-tools` must be created before any calls to sdbtools,
     # because sdbootutil expects at least one of the configuration files being
     # present. See
     # https://github.com/openSUSE/sdbootutil/commit/8d3db8b01f5681c11054c37145aad3e3973a7741
     if [ "${tik_encrypt_mode}" == 0 ]; then
+        # Generate keys for signing PCR15 predictions
+        local private="${encrypt_dir}/mnt/var/lib/sdbootutil/measure-pcr-private.pem"
+        local public="${encrypt_dir}/mnt/var/lib/sdbootutil/measure-pcr-public.pem"
+        [ -f "$private" ] || prun openssl genrsa -out "$private" 4096
+        # Writes "writing RSA key" in stderr and -noout is not doing what I was expecting
+        [ -f "$public" ] || prun openssl rsa -in "$private" -pubout -out "$public" 2> /dev/null
         # Explaining the chosen PCR list below
         # - 4 - Bootloader and drivers, should never recovery key as bootloader should only be updated with new PCR measurements
         # - 5 - GPT Partition table, should never require recovery key as partition layout shouldn't change
