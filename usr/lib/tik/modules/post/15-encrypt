@@ -70,11 +70,11 @@ open_partition() {
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/aeon_root ${encrypt_dir}/mnt/.snapshots
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/aeon_root ${encrypt_dir}/mnt/var
     # Detect whether /etc is overlay else assume it's a T-U 5.0+ later bind mount
-    if grep -qF 'overlay /etc' ${mig_dir}/mnt/etc/fstab ; then
-        etcmountcmd=$(cat ${mig_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${mig_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${mig_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
+    if grep -qF 'overlay /etc' ${encrypt_dir}/mnt/etc/fstab ; then
+        etcmountcmd=$(cat ${encrypt_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${encrypt_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${encrypt_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
         eval prun "$etcmountcmd"
     else
-        prun /usr/bin/mount -o bind ${mig_dir}/mnt/etc ${mig_dir}/mnt/etc
+        prun /usr/bin/mount -o bind ${encrypt_dir}/mnt/etc ${encrypt_dir}/mnt/etc
     fi
     prun /usr/bin/mount ${esppart} ${encrypt_dir}/mnt/boot/efi
     prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/run"
