@@ -443,8 +443,6 @@ dump_image_repart_self() {
     local image_target=$1
     create_keyfile
     log "[dump_image_repart_self] self-deploying"
-    #FIXME, debugging
-    prun-opt systemd.log_level=debug
     prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file=${tik_keyfile} --generate-fstab=/etc/fstab.repart ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
 }
 

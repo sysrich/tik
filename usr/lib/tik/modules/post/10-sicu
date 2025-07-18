@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright 2025 SUSE LLC
+# SPDX-FileCopyrightText: Copyright 2025 Richard Brown
+
+# Module that cleans up various things from a SelfInstall deployed system that otherwise can't be filtered out using repart.d config
+
+sicu_dir=/var/lib/tik/sicu
+sicu_pipe=/tmp/sicupipe
+if [ ! -d ${sicu_dir}/mnt ]; then
+    prun /usr/bin/mkdir -p ${sicu_dir}/mnt
+fi
+if [ ! -p ${sicu_pipe} ]; then
+    mkfifo ${sicu_pipe}
+fi
+
+sicu_progress() {
+    log "[sicu_progress] Monitoring SelfInstall Clean Up progress"
+    (tail -f ${sicu_pipe}) | d --progress --title="Cleaning up installation" --auto-close --no-cancel --width=400
+    rm ${sicu_pipe}
+    log "[sicu_progress] SelfInstall Clean Up progress reached 100%"
+}
+
+find_crypt() {
+    echo "# Finding encrypted partition" > ${sicu_pipe}
+    log "[find_crypt] finding encrypted partition"
+    probe_partitions ${TIK_INSTALL_DEVICE} "crypto_LUKS"
+    if [ -z "${probedpart}" ]; then
+        error "encrypted partition not found"
+    fi
+    cryptpart=${probedpart}
+    log "[find_crypt] found ${cryptpart}"
+    echo "14" > ${sicu_pipe}
+}
+
+find_esp() {
+    echo "# Finding ESP partition" > ${sicu_pipe}
+    log "[find_esp] finding ESP"
+    probe_partitions ${TIK_INSTALL_DEVICE} "vfat"
+    if [ -z "${probedpart}" ]; then
+        error "esp partition not found"
+    fi
+    esppart=${probedpart}
+    log "[find_esp] found ${esppart}"
+    echo "28" > ${sicu_pipe}
+}
+
+open_partition() {
+    echo "# Opening ${cryptpart}" > ${sicu_pipe}
+    log "[open_partition] opening ${cryptpart} and mounting for chroot"
+    prun /usr/sbin/cryptsetup luksOpen --key-file=${tik_keyfile} ${cryptpart} aeon_root
+    echo "35" > ${sicu_pipe}
+    prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/aeon_root ${sicu_dir}/mnt
+    for i in proc dev sys tmp 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
+        prun /usr/bin/mount --bind "/$i" "${sicu_dir}/mnt/$i"
+    done
+    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/aeon_root ${sicu_dir}/mnt/.snapshots
+    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/aeon_root ${sicu_dir}/mnt/var
+    # Detect whether /etc is overlay else assume it's a T-U 5.0+ later bind mount
+    if grep -qF 'overlay /etc' ${sicu_dir}/mnt/etc/fstab ; then
+        etcmountcmd=$(cat ${sicu_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${sicu_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${sicu_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
+        eval prun "$etcmountcmd"
+    else
+        prun /usr/bin/mount -o bind ${sicu_dir}/mnt/etc ${sicu_dir}/mnt/etc
+    fi
+    prun /usr/bin/mount ${esppart} ${sicu_dir}/mnt/boot/efi
+    prun /usr/bin/mount -t tmpfs tmpfs "${sicu_dir}/mnt/run"
+    prun /usr/bin/mount -t securityfs securityfs "${sicu_dir}/mnt/sys/kernel/security"
+    echo "42" > ${sicu_pipe}
+}
+
+sicu() {
+    echo "# Writing fstab" > ${sicu_pipe}
+    log "[sicu] Writing fstab"
+    prun /usr/bin/cat ${sicu_dir}/mnt/etc/fstab.repart | prun tee ${sicu_dir}/mnt/etc/fstab
+    echo "/etc /etc none bind,x-initrd.mount 0 0" | prun tee -a ${sicu_dir}/mnt/etc/fstab
+    echo "56" > ${sicu_pipe}
+    echo "# Cleaning up tik installer" > ${sicu_pipe}
+    log "[sicu] Deleting tik user"
+    prun /usr/bin/chroot ${sicu_dir}/mnt userdel -r tik
+    log "[sicu] Disabling tik autologin"
+    prun /usr/bin/sed -i 's/DISPLAYMANAGER_AUTOLOGIN="tik"/DISPLAYMANAGER_AUTOLOGIN=""/' ${sicu_dir}/mnt/etc/sysconfig/displaymanager
+    echo "70" > ${sicu_pipe}
+}
+
+close_partition() {
+    echo "# Closing ${cryptpart}" > ${sicu_pipe}
+    log "[close_partition] unmounting and closing ${cryptpart}"
+    for i in proc dev run tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' 'sys/fs/cgroup' sys; do
+        prun /usr/bin/umount "${sicu_dir}/mnt/$i"
+    done
+    prun /usr/bin/umount ${sicu_dir}/mnt
+    prun /usr/sbin/cryptsetup luksClose aeon_root
+    echo "77" > ${sicu_pipe}
+}
+
+sicu_progress &
+find_crypt
+find_esp
+open_partition
+sicu
+close_partition
