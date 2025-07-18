@@ -90,7 +90,7 @@ close_partition() {
     done
     prun /usr/bin/umount ${sicu_dir}/mnt
     prun /usr/sbin/cryptsetup luksClose aeon_root
-    echo "77" > ${sicu_pipe}
+    echo "100" > ${sicu_pipe}
 }
 
 sicu_progress &
