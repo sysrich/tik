@@ -73,6 +73,7 @@ sicu() {
     log "[sicu] Writing fstab"
     prun /usr/bin/cat ${sicu_dir}/mnt/etc/fstab.repart | prun tee ${sicu_dir}/mnt/etc/fstab
     echo "/etc /etc none bind,x-initrd.mount 0 0" | prun tee -a ${sicu_dir}/mnt/etc/fstab
+    prun /usr/bin/rm /etc/fstab.repart
     echo "56" > ${sicu_pipe}
     echo "# Cleaning up tik installer" > ${sicu_pipe}
     log "[sicu] Deleting tik user"
