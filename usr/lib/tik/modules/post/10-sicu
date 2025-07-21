@@ -80,6 +80,9 @@ sicu() {
     log "[sicu] Disabling tik autologin"
     prun /usr/bin/sed -i 's/DISPLAYMANAGER_AUTOLOGIN="tik"/DISPLAYMANAGER_AUTOLOGIN=""/' ${sicu_dir}/mnt/etc/sysconfig/displaymanager
     echo "70" > ${sicu_pipe}
+    echo "# Relabeling deployed filesystem" > ${sicu_pipe}
+    prun-opt /usr/bin/chroot ${sicu_dir}/mnt fixfiles -f -T $(nproc) relabel
+    echo "77" > ${sicu_pipe}
 }
 
 close_partition() {
