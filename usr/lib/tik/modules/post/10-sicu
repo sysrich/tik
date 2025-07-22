@@ -78,6 +78,9 @@ sicu() {
     echo "# Cleaning up tik installer" > ${sicu_pipe}
     log "[sicu] Deleting tik user"
     prun /usr/bin/chroot ${sicu_dir}/mnt userdel -r tik
+    prun /usr/bin/rm ${sicu_dir}/mnt/var/lib/AccountsService/users/tik
+    log "[sicu] Enabling initial-setup"
+    prun /usr/bin/rm ${sicu_dir}/mnt/var/lib/gdm/block-initial-setup
     log "[sicu] Disabling tik autologin"
     prun /usr/bin/sed -i 's/DISPLAYMANAGER_AUTOLOGIN="tik"/DISPLAYMANAGER_AUTOLOGIN=""/' ${sicu_dir}/mnt/etc/sysconfig/displaymanager
     echo "70" > ${sicu_pipe}
