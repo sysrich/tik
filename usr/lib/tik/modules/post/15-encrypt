@@ -4,6 +4,7 @@
 
 # Module does not actually do any encryption, but is intended to finish installation of an encrypted image, such as one deployed via systemd-repart
 # Module expects to find a single ESP partition (find_esp) and a single LUKS2 partition (find_crypt) on $TIK_INSTALL_DEVICE, upon which it will do the following
+#   - Generate a recovery key (generate_recoveryKey)
 #   - Open the encrypted device, mounting var, etc, boot/efi, tmp, run, sys, dev and proc (open_partition)
 #   - Against the mounted partition, do the following (configure_encryption)
 #       - write /etc/kernel/cmdline
@@ -12,7 +13,6 @@
 #       - populate /boot/efi with sdbootutil install & sdbootutil mkinitrd
 #       - populate /etc/sysconfig/fde-tools (so the measurements can be updated on first boot)
 #   - Close the partition (close_partition)
-#   - Generate a recovery key (generate_recoveryKey)
 #   - Add recovery key to device and identify it as a systemd-recovery key (add_recoveryKey)
 #   - Display the recovery key to the user (display_recoveryKey)
 #   - Remove the temporary key-file and replace it either with TPM enrollment or a user-supplied passphrase (add_key)
@@ -56,6 +56,22 @@ find_esp() {
     esppart=${probedpart}
     log "[find_esp] found ${esppart}"
     echo "28" > ${encrypt_pipe}
+}
+
+# The thought process for moving "generate_recoveryKey" here specifically is because it previously ran after "close_partition" so placing it here would let it be in a environment where the partition is closed like originally intended. AKA before "open_partition".
+generate_recoveryKey() {
+    echo "# Generating recovery key" > ${encrypt_pipe}
+    log "[generate_recoveryKey] generating recovery key"
+    modhex=('c' 'b' 'd' 'e' 'f' 'g' 'h' 'i' 'j' 'k' 'l' 'n' 'r' 't' 'u' 'v')
+    mapfile -t raw_key < <(hexdump -v --format '1/1 "%u\n"' -n 32 /dev/random)
+    [ "${#raw_key[@]}" = 32 ]
+    key=""
+    for ((i=0;i<"${#raw_key[@]}";++i)); do
+        [ "$i" -gt 0 ] && [ "$((i%4))" -eq 0 ] && key="${key}-"
+        c="${raw_key[i]}"
+        key="${key}${modhex[$((c>>4))]}${modhex[$((c&15))]}"
+    done
+    echo "84" > ${encrypt_pipe} # From what I understand this is just a progress bar for the GUI I don't know how to calculate this exactly with such a change I'll leave this up to the developer.
 }
 
 open_partition() {
@@ -123,13 +139,13 @@ configure_encryption() {
         # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
     fi
     # Populate ESP
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2
+    prun /usr/bin/chroot ${encrypt_dir}/mnt env PIN=$(< ${key}) sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2 # I'm 90% this command updates predictions for the first time so setting the TPM2 PIN here with the "env PIN=" and the permanent recovery key should fix (https://bugzilla.opensuse.org/show_bug.cgi?id=1241122).
     echo "56" > ${encrypt_pipe}
     echo "# Creating initrd" > ${encrypt_pipe}
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, override the problematic option temporarily
     /usr/bin/echo 'hostonly_cmdline="no"' | prun tee ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
     # mkinitrd done by add-all-kernels
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
+    prun /usr/bin/chroot ${encrypt_dir}/mnt env PIN=$(< ${key}) sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2 # I'm 10% sure this is where updating predictions happens for the first time the same "env PIN=$(< ${key})" should fix (https://bugzilla.opensuse.org/show_bug.cgi?id=1241122).
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, remove override now initrd done
     prun /usr/bin/rm ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
     echo "70" > ${encrypt_pipe}
@@ -150,6 +166,7 @@ ExecStart=/usr/bin/sdbootutil update-predictions
 WantedBy=default.target
 EOF
         prun /usr/bin/ln -s ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service ${encrypt_dir}/mnt/etc/systemd/system/default.target.wants/firstboot-update-predictions.service
+        # Is line 170 - 173 needed? Since predictions seems to be generated twice before this? If it's not removing this could lead to slightly faster install times.
         log "[configure_encryption] Generating Predictions"
         echo "# Generating TPM Predictions" > ${encrypt_pipe}
         prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv update-predictions
@@ -170,21 +187,6 @@ close_partition() {
     prun /usr/bin/umount ${encrypt_dir}/mnt
     prun /usr/sbin/cryptsetup luksClose aeon_root
     echo "77" > ${encrypt_pipe}
-}
-
-generate_recoveryKey() {
-    echo "# Generating recovery key" > ${encrypt_pipe}
-    log "[generate_recoveryKey] generating recovery key"
-    modhex=('c' 'b' 'd' 'e' 'f' 'g' 'h' 'i' 'j' 'k' 'l' 'n' 'r' 't' 'u' 'v')
-    mapfile -t raw_key < <(hexdump -v --format '1/1 "%u\n"' -n 32 /dev/random)
-    [ "${#raw_key[@]}" = 32 ]
-    key=""
-    for ((i=0;i<"${#raw_key[@]}";++i)); do
-        [ "$i" -gt 0 ] && [ "$((i%4))" -eq 0 ] && key="${key}-"
-        c="${raw_key[i]}"
-        key="${key}${modhex[$((c>>4))]}${modhex[$((c&15))]}"
-    done
-    echo "84" > ${encrypt_pipe}
 }
 
 add_recoveryKey() {
@@ -240,10 +242,10 @@ add_key() {
 crypt_progress &
 find_crypt
 find_esp
+generate_recoveryKey
 open_partition
 configure_encryption
 close_partition
 add_key
-generate_recoveryKey
 add_recoveryKey
 display_recoveryKey
