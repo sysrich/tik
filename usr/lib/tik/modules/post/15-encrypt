@@ -104,6 +104,10 @@ configure_encryption() {
     # present. See
     # https://github.com/openSUSE/sdbootutil/commit/8d3db8b01f5681c11054c37145aad3e3973a7741
     if [ "${tik_encrypt_mode}" == 0 ]; then
+        # Make path for sdbootutil if it doesn't exist
+        if [ ! -d ${encrypt_dir}/mnt/var/lib/sdbootutil ]; then
+            prun /usr/bin/mkdir -p ${encrypt_dir}/mnt/var/lib/sdbootutil
+        fi
         # Generate keys for signing PCR15 predictions
         local private="${encrypt_dir}/mnt/var/lib/sdbootutil/measure-pcr-private.pem"
         local public="${encrypt_dir}/mnt/var/lib/sdbootutil/measure-pcr-public.pem"
