@@ -98,16 +98,16 @@ configure_encryption() {
     cryptUUID=$(lsblk -n -r -d -o UUID ${cryptpart})
     echo "aeon_root UUID=${cryptUUID} none x-initrd.attach${crypttab_opts}" | prun tee ${encrypt_dir}/mnt/etc/crypttab
     echo "# Installing boot loader" > ${encrypt_pipe}
+    # Populate /var if it's empty
+    if [ ! -d ${encrypt_dir}/mnt/var/lib ]; then
+        prun-opt /usr/bin/chroot ${encrypt_dir}/mnt systemd-tmpfiles --create --no-pager
+    fi
     # If Default mode has been detected, configure PCR policy and PCR15 keys.
     # `etc/sysconfig/fde-tools` must be created before any calls to sdbtools,
     # because sdbootutil expects at least one of the configuration files being
     # present. See
     # https://github.com/openSUSE/sdbootutil/commit/8d3db8b01f5681c11054c37145aad3e3973a7741
     if [ "${tik_encrypt_mode}" == 0 ]; then
-        # Populate /var if it's empty
-        if [ ! -d ${encrypt_dir}/mnt/var/lib ]; then
-            prun-opt /usr/bin/chroot ${encrypt_dir}/mnt systemd-tmpfiles --create --no-pager
-        fi
         # Make path for sdbootutil if it doesn't exist
         if [ ! -d ${encrypt_dir}/mnt/var/lib/sdbootutil ]; then
             prun /usr/bin/mkdir -p ${encrypt_dir}/mnt/var/lib/sdbootutil
