@@ -78,10 +78,8 @@ setup_live_env() {
     log "[setup_live_env] Setting up environment for Live Trial"
     gsettings reset org.gnome.shell favorite-apps
     gsettings reset org.gnome.desktop.session idle-delay
-    gsettings reset org.gnome.desktop.screensaver lock-enabled
     gsettings reset org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type
     gsettings reset org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type
-    gsettings reset org.gnome.desktop.lockdown disable-lock-screen
     gsettings reset org.gnome.desktop.lockdown disable-log-out
     gsettings reset org.gnome.desktop.lockdown disable-printing
     gsettings reset org.gnome.desktop.lockdown disable-print-setup
