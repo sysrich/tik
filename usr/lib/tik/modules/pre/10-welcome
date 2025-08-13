@@ -1,10 +1,19 @@
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: Copyright 2024 SUSE LLC
-# SPDX-FileCopyrightText: Copyright 2024 Richard Brown
+# SPDX-FileCopyrightText: Copyright 2025 SUSE LLC
+# SPDX-FileCopyrightText: Copyright 2025 Richard Brown
 # SPDX-FileCopyrightText: Copyright 2024 Raymond Yip
 
 proceedInstall() {
-    d --info --ok-label="Install Now" --no-wrap --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME}</big>\n\nPlease press <b>Install Now</b> to continue"
+    d_opt --question --ok-label="Install Now" --cancel-label="Live Trial" --no-wrap --width=400 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME}</big>\n\nPlease press <b>Install Now</b> to continue\n\nOr press <b>Live Trial</b> to try ${TIK_OS_NAME} without installing"
+    livetrialyn=$?
+    log "[livetrialyn][${livetrialyn}]"
+    if [ "${livetrialyn}" == 1 ]; then
+        d --info --ok-label="Understood, Start Live Trial" --no-wrap --width=400 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME} Live Trial</big>\n\nPlease Note:\n\n* Changes to <b>system settings &amp; system passwords</b> will be copied when installing later\n* Changes to <b>system packages &amp; this user account</b> will <b>NOT</b> be copied when installing later\n\nThanks for trying ${TIK_OS_NAME}"
+        setup_live_env
+        waitforNet
+        aeon-firstboot
+        exit 0
+    fi
 }
 
 displayACWarningMsg() {
@@ -44,6 +53,45 @@ verify_efi() {
     fi
 }
 
+setup_env() {
+    # Setup environment for installation, mostly setting GNOME/gsettings vars to prevent screenlocking, etc
+    log "[setup_env] Setting up environment for Installation"
+    gsettings set org.gnome.shell favorite-apps ['']
+    gsettings set org.gnome.desktop.session idle-delay '0'
+    gsettings set org.gnome.desktop.screensaver lock-enabled 'false'
+    gsettings set org.gnome.desktop.screensaver user-switch-enabled 'false'
+    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing'
+    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
+    gsettings set org.gnome.desktop.lockdown disable-lock-screen 'true'
+    gsettings set org.gnome.desktop.lockdown disable-log-out 'true'
+    gsettings set org.gnome.desktop.lockdown disable-printing 'true'
+    gsettings set org.gnome.desktop.lockdown disable-print-setup 'true'
+    gsettings set org.gnome.desktop.lockdown disable-user-switching 'true'
+    gsettings set org.gnome.desktop.lockdown user-administration-disabled 'true'
+    gsettings set org.gnome.software allow-updates 'false'
+    gsettings set org.gnome.software download-updates 'false'
+    gsettings set org.gnome.software download-updates-notify 'false'
+}
+
+setup_live_env() {
+    # Reset most settngs defined by setup_env() for use as Live Trial
+    log "[setup_live_env] Setting up environment for Live Trial"
+    gsettings reset org.gnome.shell favorite-apps
+    gsettings reset org.gnome.desktop.session idle-delay
+    gsettings reset org.gnome.desktop.screensaver lock-enabled
+    gsettings reset org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type
+    gsettings reset org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type
+    gsettings reset org.gnome.desktop.lockdown disable-lock-screen
+    gsettings reset org.gnome.desktop.lockdown disable-log-out
+    gsettings reset org.gnome.desktop.lockdown disable-printing
+    gsettings reset org.gnome.desktop.lockdown disable-print-setup
+}
+
+waitforNet(){
+    (until /usr/bin/curl -s --max-time 5 https://flathub.org > /dev/null; do sleep 1; done)| d --progress --width=400 --title="Please Setup Network Connection" --text="Use the Network options in the Top-Right Corner to connect Wired or Wireless Internet" --pulsate --auto-close --no-cancel
+}
+
+setup_env
 proceedInstall
 verify_efi
 checkLaptop
