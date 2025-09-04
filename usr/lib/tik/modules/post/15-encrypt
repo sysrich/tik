@@ -85,7 +85,7 @@ open_partition() {
 configure_encryption() {
     # If Default Mode has been detected, configure crypttab for TPM
     if [ "${tik_encrypt_mode}" == 0 ]; then
-        crypttab_opts=',tpm2-device=auto'
+        crypttab_opts=',tpm2-device=auto,tpm2-measure-pcr=yes'
     fi
     echo "# Writing cmdline, crypttab, and fstab" > ${encrypt_pipe}
     log "[configure_encryption] configuring cmdline, crypttab, PCR policy, fstab and populating ${esppart}"
