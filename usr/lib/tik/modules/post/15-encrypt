@@ -4,6 +4,7 @@
 
 # Module does not actually do any encryption, but is intended to finish installation of an encrypted image, such as one deployed via systemd-repart
 # Module expects to find a single ESP partition (find_esp) and a single LUKS2 partition (find_crypt) on $TIK_INSTALL_DEVICE, upon which it will do the following
+#   - Generate a recovery key (generate_recoveryKey)
 #   - Open the encrypted device, mounting var, etc, boot/efi, tmp, run, sys, dev and proc (open_partition)
 #   - Against the mounted partition, do the following (configure_encryption)
 #       - write /etc/kernel/cmdline
@@ -12,7 +13,6 @@
 #       - populate /boot/efi with sdbootutil install & sdbootutil mkinitrd
 #       - populate /etc/sysconfig/fde-tools (so the measurements can be updated on first boot)
 #   - Close the partition (close_partition)
-#   - Generate a recovery key (generate_recoveryKey)
 #   - Add recovery key to device and identify it as a systemd-recovery key (add_recoveryKey)
 #   - Display the recovery key to the user (display_recoveryKey)
 #   - Remove the temporary key-file and replace it either with TPM enrollment or a user-supplied passphrase (add_key)
@@ -58,11 +58,26 @@ find_esp() {
     echo "28" > ${encrypt_pipe}
 }
 
+generate_recoveryKey() {
+    echo "# Generating recovery key" > ${encrypt_pipe}
+    log "[generate_recoveryKey] generating recovery key"
+    modhex=('c' 'b' 'd' 'e' 'f' 'g' 'h' 'i' 'j' 'k' 'l' 'n' 'r' 't' 'u' 'v')
+    mapfile -t raw_key < <(hexdump -v --format '1/1 "%u\n"' -n 32 /dev/random)
+    [ "${#raw_key[@]}" = 32 ]
+    key=""
+    for ((i=0;i<"${#raw_key[@]}";++i)); do
+        [ "$i" -gt 0 ] && [ "$((i%4))" -eq 0 ] && key="${key}-"
+        c="${raw_key[i]}"
+        key="${key}${modhex[$((c>>4))]}${modhex[$((c&15))]}"
+    done
+    echo "35" > ${encrypt_pipe}
+}
+
 open_partition() {
     echo "# Opening ${cryptpart}" > ${encrypt_pipe}
     log "[open_partition] opening ${cryptpart} and mounting for chroot"
     prun /usr/sbin/cryptsetup luksOpen --key-file=${tik_keyfile} ${cryptpart} aeon_root
-    echo "35" > ${encrypt_pipe}
+    echo "42" > ${encrypt_pipe}
     prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/aeon_root ${encrypt_dir}/mnt
     for i in proc dev sys tmp 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
         prun /usr/bin/mount --bind "/$i" "${encrypt_dir}/mnt/$i"
@@ -79,7 +94,7 @@ open_partition() {
     prun /usr/bin/mount ${esppart} ${encrypt_dir}/mnt/boot/efi
     prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/run"
     prun /usr/bin/mount -t securityfs securityfs "${encrypt_dir}/mnt/sys/kernel/security"
-    echo "42" > ${encrypt_pipe}
+    echo "56" > ${encrypt_pipe}
 }
 
 configure_encryption() {
@@ -131,8 +146,8 @@ configure_encryption() {
         # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
     fi
     # Populate ESP
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2
-    echo "56" > ${encrypt_pipe}
+    prun /usr/bin/chroot ${encrypt_dir}/mnt env PIN=${key} sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2
+    echo "70" > ${encrypt_pipe}
     echo "# Creating initrd" > ${encrypt_pipe}
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, override the problematic option temporarily
     /usr/bin/echo 'hostonly_cmdline="no"' | prun tee ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
@@ -140,7 +155,7 @@ configure_encryption() {
     prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, remove override now initrd done
     prun /usr/bin/rm ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
-    echo "70" > ${encrypt_pipe}
+    echo "73" > ${encrypt_pipe}
     # If Default mode has been detected, update predictions and enroll
     if [ "${tik_encrypt_mode}" == 0 ]; then
         prun /usr/bin/tee ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service << EOF
@@ -161,11 +176,11 @@ EOF
         log "[configure_encryption] Generating Predictions"
         echo "# Generating TPM Predictions" > ${encrypt_pipe}
         prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv update-predictions
-        echo "73" > ${encrypt_pipe}
+        echo "76" > ${encrypt_pipe}
         log "[configure_encryption] Default Mode - Enrolling ${cryptpart} to TPM 2.0"
         echo "# Enrolling to TPM" > ${encrypt_pipe}
         prun /usr/bin/chroot ${encrypt_dir}/mnt systemd-cryptenroll --unlock-key-file=${tik_keyfile} --tpm2-device=auto ${cryptpart}
-        echo "76" > ${encrypt_pipe}
+        echo "77" > ${encrypt_pipe}
     fi
 }
 
@@ -177,22 +192,7 @@ close_partition() {
     done
     prun /usr/bin/umount ${encrypt_dir}/mnt
     prun /usr/sbin/cryptsetup luksClose aeon_root
-    echo "77" > ${encrypt_pipe}
-}
-
-generate_recoveryKey() {
-    echo "# Generating recovery key" > ${encrypt_pipe}
-    log "[generate_recoveryKey] generating recovery key"
-    modhex=('c' 'b' 'd' 'e' 'f' 'g' 'h' 'i' 'j' 'k' 'l' 'n' 'r' 't' 'u' 'v')
-    mapfile -t raw_key < <(hexdump -v --format '1/1 "%u\n"' -n 32 /dev/random)
-    [ "${#raw_key[@]}" = 32 ]
-    key=""
-    for ((i=0;i<"${#raw_key[@]}";++i)); do
-        [ "$i" -gt 0 ] && [ "$((i%4))" -eq 0 ] && key="${key}-"
-        c="${raw_key[i]}"
-        key="${key}${modhex[$((c>>4))]}${modhex[$((c&15))]}"
-    done
-    echo "84" > ${encrypt_pipe}
+    echo "93" > ${encrypt_pipe}
 }
 
 add_recoveryKey() {
@@ -248,10 +248,10 @@ add_key() {
 crypt_progress &
 find_crypt
 find_esp
+generate_recoveryKey
 open_partition
 configure_encryption
 close_partition
 add_key
-generate_recoveryKey
 add_recoveryKey
 display_recoveryKey
