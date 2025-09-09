@@ -129,7 +129,7 @@ configure_encryption() {
         # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
     fi
     # Populate ESP
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2
+    prun KEY=${key} PIN=${key} /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2
     echo "56" > ${encrypt_pipe}
     echo "# Creating initrd" > ${encrypt_pipe}
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, override the problematic option temporarily
@@ -175,7 +175,7 @@ close_partition() {
     done
     prun /usr/bin/umount ${encrypt_dir}/mnt
     prun /usr/sbin/cryptsetup luksClose aeon_root
-    echo "77" > ${encrypt_pipe}
+    echo "84" > ${encrypt_pipe}
 }
 
 generate_recoveryKey() {
@@ -190,7 +190,7 @@ generate_recoveryKey() {
         c="${raw_key[i]}"
         key="${key}${modhex[$((c>>4))]}${modhex[$((c&15))]}"
     done
-    echo "84" > ${encrypt_pipe}
+    echo "50" > ${encrypt_pipe}
 }
 
 add_recoveryKey() {
@@ -247,9 +247,9 @@ crypt_progress &
 find_crypt
 find_esp
 open_partition
+generate_recoveryKey
 configure_encryption
 close_partition
 add_key
-generate_recoveryKey
 add_recoveryKey
 display_recoveryKey
