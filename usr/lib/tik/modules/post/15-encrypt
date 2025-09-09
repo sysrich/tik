@@ -64,7 +64,7 @@ open_partition() {
     prun /usr/sbin/cryptsetup luksOpen --key-file=${tik_keyfile} ${cryptpart} aeon_root
     echo "35" > ${encrypt_pipe}
     prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/aeon_root ${encrypt_dir}/mnt
-    for i in proc dev sys tmp 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
+    for i in run proc dev sys tmp 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
         prun /usr/bin/mount --bind "/$i" "${encrypt_dir}/mnt/$i"
     done
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/aeon_root ${encrypt_dir}/mnt/.snapshots
@@ -164,7 +164,7 @@ EOF
 close_partition() {
     echo "# Closing ${cryptpart}" > ${encrypt_pipe}
     log "[close_partition] unmounting and closing ${cryptpart}"
-    for i in proc dev run tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' 'sys/fs/cgroup' sys; do
+    for i in run proc dev run tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' 'sys/fs/cgroup' sys; do
         prun /usr/bin/umount "${encrypt_dir}/mnt/$i"
     done
     prun /usr/bin/umount ${encrypt_dir}/mnt
