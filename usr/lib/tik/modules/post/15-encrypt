@@ -100,7 +100,7 @@ open_partition() {
 configure_encryption() {
     # If Default Mode has been detected, configure crypttab for TPM
     if [ "${tik_encrypt_mode}" == 0 ]; then
-        crypttab_opts=',tpm2-device=auto'
+        crypttab_opts=',tpm2-device=auto,tpm2-measure-pcr=yes'
     fi
     echo "# Writing cmdline, crypttab, and fstab" > ${encrypt_pipe}
     log "[configure_encryption] configuring cmdline, crypttab, PCR policy, fstab and populating ${esppart}"
@@ -113,6 +113,10 @@ configure_encryption() {
     cryptUUID=$(lsblk -n -r -d -o UUID ${cryptpart})
     echo "aeon_root UUID=${cryptUUID} none x-initrd.attach${crypttab_opts}" | prun tee ${encrypt_dir}/mnt/etc/crypttab
     echo "# Installing boot loader" > ${encrypt_pipe}
+    # Populate /var if it's empty
+    if [ ! -d ${encrypt_dir}/mnt/var/lib ]; then
+        prun-opt /usr/bin/chroot ${encrypt_dir}/mnt systemd-tmpfiles --create --no-pager
+    fi
     # If Default mode has been detected, configure PCR policy and PCR15 keys.
     # `etc/sysconfig/fde-tools` must be created before any calls to sdbtools,
     # because sdbootutil expects at least one of the configuration files being
