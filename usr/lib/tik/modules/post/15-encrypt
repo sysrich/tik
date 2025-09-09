@@ -137,7 +137,7 @@ configure_encryption() {
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, override the problematic option temporarily
     /usr/bin/echo 'hostonly_cmdline="no"' | prun tee ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
     # mkinitrd done by add-all-kernels
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
+    prun /usr/bin/chroot ${encrypt_dir}/mnt KEY=${tik_keyfile} sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, remove override now initrd done
     prun /usr/bin/rm ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
     echo "70" > ${encrypt_pipe}
@@ -160,7 +160,7 @@ EOF
         prun /usr/bin/ln -s ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service ${encrypt_dir}/mnt/etc/systemd/system/default.target.wants/firstboot-update-predictions.service
         log "[configure_encryption] Generating Predictions"
         echo "# Generating TPM Predictions" > ${encrypt_pipe}
-        prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv update-predictions
+        prun /usr/bin/chroot ${encrypt_dir}/mnt KEY=${tik_keyfile} sdbootutil -vv update-predictions
         echo "73" > ${encrypt_pipe}
         log "[configure_encryption] Default Mode - Enrolling ${cryptpart} to TPM 2.0"
         echo "# Enrolling to TPM" > ${encrypt_pipe}
