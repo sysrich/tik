@@ -47,8 +47,6 @@ cleanup() {
     log "[STOP][${retval}] $0"
     if [ "${debug}" == "1" ]; then
         d --timeout 5 --info --no-wrap --text="<b>Test Succeeded:</b>\n\nHave a nice day!"
-    elif [ "${retval}" == "0" ] && [ "${livetrialyn}" == "1" ]; then
-        d --timeout 5 --info --no-wrap --title="Live Trial Ready!" --text="${TIK_OS_NAME} is ready to be trialed.\n\n<b>Please reboot to this USB stick to install ${TIK_OS_NAME}</b>\n\nThank you for trying ${TIK_OS_NAME}."
     elif [ "${retval}" == "0" ]; then
         d --timeout 5 --info --no-wrap --title="Installation Complete!" --text="${TIK_OS_NAME} has been installed.\n\n<b>System is rebooting</b>"
         prun systemctl reboot --force
