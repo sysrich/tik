@@ -192,7 +192,7 @@ generate_recoveryKey() {
     done
     log "[generate_recoveryKey] adding recovery key to sdbootutil session keyring"
     logging=false
-    prun keyctl add user sdbootutil ${key} @s
+    keyctl add user sdbootutil ${key} @s
     logging=true
     echo "50" > ${encrypt_pipe}
 }
