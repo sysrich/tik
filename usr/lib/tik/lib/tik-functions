@@ -368,8 +368,8 @@ create_keyfile() {
     log "[create_keyfile] Creating keyfile ${tik_keyfile}"
     /usr/bin/base64 -w 0 /dev/urandom | head -c 1k | prun tee ${tik_keyfile}
     prun /usr/bin/chmod 400 ${tik_keyfile}
-    # Add the key to the cryptenroll keyring, and record tik_keyid for either interactions later
-    tik_keyid=$(prun cat ${tik_keyfile} | keyctl padd user cryptenroll @s)
+    # Add the key to roots cryptenroll keyring, and record tik_keyid for either interactions later
+    tik_keyid=$(prun cat ${tik_keyfile} | keyctl padd user cryptenroll @u)
 }
 
 wipe_keyfile() {

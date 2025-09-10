@@ -190,9 +190,9 @@ generate_recoveryKey() {
         c="${raw_key[i]}"
         key="${key}${modhex[$((c>>4))]}${modhex[$((c&15))]}"
     done
-    log "[generate_recoveryKey] adding recovery key to sdbootutil session keyring"
+    log "[generate_recoveryKey] adding recovery key to roots sdbootutil user keyring"
     logging=false
-    keyctl add user sdbootutil ${key} @s
+    pkexec keyctl add user sdbootutil ${key} @u
     logging=true
     echo "50" > ${encrypt_pipe}
 }
