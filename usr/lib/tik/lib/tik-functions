@@ -382,7 +382,8 @@ wipe_keyfile() {
     fi
     # We're done with the key-file, so remove it from the filesystem and keyring
     prun /usr/bin/rm ${tik_keyfile}
-    prun keyctl unlink ${tik_keyid}
+    prun keyctl revoke ${tik_keyid}
+    prun keyctl reap
 }
 
 dump_image() {
