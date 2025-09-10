@@ -367,7 +367,10 @@ create_keyfile() {
     tik_keyfile=$(prun mktemp /tmp/tik.XXXXXXXXXX)
     log "[create_keyfile] Creating keyfile ${tik_keyfile}"
     prun /usr/bin/dd bs=512 count=4 if=/dev/urandom of=${tik_keyfile} iflag=fullblock
+    /usr/bin/base64 -w 0 /dev/urandom | head -c 1M | prun tee ${tik_keyfile}
     prun /usr/bin/chmod 400 ${tik_keyfile}
+    # Add the key to the cryptenroll keyring, and record tik_keyid for either interactions later
+    tik_keyid=$(prun cat ${tik_keyfile} | prun keyctl padd user cryptenroll @s)
 }
 
 wipe_keyfile() {
@@ -378,8 +381,9 @@ wipe_keyfile() {
         # Assumes Slot 0 is always by the key-file at enrolment
         prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --wipe-slot=0 ${probedpart}
     fi
-    # We're done with the key-file, so remove it
+    # We're done with the key-file, so remove it from the filesystem and keyring
     prun /usr/bin/rm ${tik_keyfile}
+    prun keyctl unlink ${tik_keyid}
 }
 
 dump_image() {
