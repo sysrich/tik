@@ -170,10 +170,7 @@ EOF
 close_partition() {
     echo "# Closing ${cryptpart}" > ${encrypt_pipe}
     log "[close_partition] unmounting and closing ${cryptpart}"
-    for i in proc dev run tmp 'boot/efi' etc var '.snapshots' sys; do
-        prun /usr/bin/umount "${encrypt_dir}/mnt/$i"
-    done
-    prun /usr/bin/umount ${encrypt_dir}/mnt
+    prun /usr/bin/umount -l -R ${encrypt_dir}/mnt
     prun /usr/sbin/cryptsetup luksClose aeon_root
     echo "84" > ${encrypt_pipe}
 }

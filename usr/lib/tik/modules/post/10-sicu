@@ -50,8 +50,8 @@ open_partition() {
     prun /usr/sbin/cryptsetup luksOpen --key-file=${tik_keyfile} ${cryptpart} aeon_root
     echo "35" > ${sicu_pipe}
     prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/aeon_root ${sicu_dir}/mnt
-    for i in proc dev sys tmp 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
-        prun /usr/bin/mount --bind "/$i" "${sicu_dir}/mnt/$i"
+    for i in proc dev sys tmp run; do
+        prun /usr/bin/mount --rbind "/$i" "${sicu_dir}/mnt/$i"
     done
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/aeon_root ${sicu_dir}/mnt/.snapshots
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/aeon_root ${sicu_dir}/mnt/var
@@ -63,8 +63,6 @@ open_partition() {
         prun /usr/bin/mount -o bind ${sicu_dir}/mnt/etc ${sicu_dir}/mnt/etc
     fi
     prun /usr/bin/mount ${esppart} ${sicu_dir}/mnt/boot/efi
-    prun /usr/bin/mount -t tmpfs tmpfs "${sicu_dir}/mnt/run"
-    prun /usr/bin/mount -t securityfs securityfs "${sicu_dir}/mnt/sys/kernel/security"
     echo "42" > ${sicu_pipe}
 }
 
@@ -88,10 +86,7 @@ sicu() {
 close_partition() {
     echo "# Closing ${cryptpart}" > ${sicu_pipe}
     log "[close_partition] unmounting and closing ${cryptpart}"
-    for i in proc dev run tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' 'sys/fs/cgroup' sys; do
-        prun /usr/bin/umount "${sicu_dir}/mnt/$i"
-    done
-    prun /usr/bin/umount ${sicu_dir}/mnt
+    prun /usr/bin/umount -l -R ${sicu_dir}/mnt
     prun /usr/sbin/cryptsetup luksClose aeon_root
     echo "100" > ${sicu_pipe}
 }
