@@ -18,6 +18,10 @@ TIK_IMG_DIR="/usr/lib/tik/img"
 # Default: Undefined
 #TIK_INSTALL_IMAGE=""
 
+# To allow deploying an image to the free space on a disk instead of using the complete disk
+# Default: Undefined
+#TIK_SHOW_FREE_SPACE="true"
+
 # Display name of the OS to be deployed by tik
 # Default: Undefined
 #TIK_OS_NAME=""
