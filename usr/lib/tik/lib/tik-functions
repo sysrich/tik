@@ -459,6 +459,8 @@ set_boot_target() {
     else
         # Cleanup any existing openSUSE boot entries
         prun-opt /usr/sbin/efibootmgr -B -L "openSUSE Boot Manager"
+        # Cleanup any existing ${TIK_OS_NAME} boot entries
+        prun-opt /usr/sbin/efibootmgr -B -L "${TIK_OS_NAME} Boot Manager"
         prun /usr/sbin/efibootmgr -O
         log "[set_boot_target] searching for ESP partition containing /EFI/systemd/shim.efi on ${TIK_INSTALL_DEVICE}"
         probe_partitions ${TIK_INSTALL_DEVICE} "vfat" "/EFI/systemd/shim.efi"
@@ -467,7 +469,7 @@ set_boot_target() {
         fi
         efipartnum=$(lsblk ${probedpart} -p -n -r -o PARTN)
         log "[set_boot_target] found ESP on ${probedpart}, partition number ${efipartnum}"
-        prun /usr/sbin/efibootmgr -c -L "openSUSE Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p ${efipartnum}
+        prun /usr/sbin/efibootmgr -c -L "${TIK_OS_NAME} Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p ${efipartnum}
         # Log to show the resulting eficonfig
         log "[set_boot_target] $(prun /usr/sbin/efibootmgr)"
         efi_already_set=1
