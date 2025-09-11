@@ -98,8 +98,8 @@ configure_encryption() {
     echo "# Installing boot loader" > ${encrypt_pipe}
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, override the problematic option temporarily
     /usr/bin/echo 'hostonly_cmdline="no"' | prun tee ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
-    # Enroll with sdbootutil, always with a recovery-key first
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --method=recovery-key enroll 1>&2
+    # Install bootloader with sdbootutil
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi install 1>&2
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, remove override now initrd done
     prun /usr/bin/rm ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
     # If Default mode has been detected, configure PCR policy.
