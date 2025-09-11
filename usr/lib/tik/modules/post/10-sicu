@@ -50,9 +50,13 @@ open_partition() {
     prun /usr/sbin/cryptsetup luksOpen --key-file=${tik_keyfile} ${cryptpart} aeon_root
     echo "35" > ${sicu_pipe}
     prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/aeon_root ${sicu_dir}/mnt
-    for i in proc dev sys tmp run; do
-        prun /usr/bin/mount --rbind "/$i" "${sicu_dir}/mnt/$i"
-    done
+    prun /usr/bin/mount -t proc /proc "${sicu_dir}/mnt/proc"
+    prun /usr/bin/mount --bind /sys "${sicu_dir}/mnt/sys"
+    prun /usr/bin/mount -t securityfs securityfs "${sicu_dir}/mnt/sys/kernel/security"
+    prun /usr/bin/mount -t efivarfs efivarfs "${sicu_dir}/mnt/sys/firmware/efi/efivars"
+    prun /usr/bin/mount --bind /dev "${sicu_dir}/mnt/dev"
+    prun /usr/bin/mount --rbind /run "${sicu_dir}/mnt/run"
+    prun /usr/bin/mount -t tmpfs tmpfs "${sicu_dir}/mnt/tmp"
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/aeon_root ${sicu_dir}/mnt/.snapshots
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/aeon_root ${sicu_dir}/mnt/var
     # Detect whether /etc is overlay else assume it's a T-U 5.0+ later bind mount
@@ -86,7 +90,10 @@ sicu() {
 close_partition() {
     echo "# Closing ${cryptpart}" > ${sicu_pipe}
     log "[close_partition] unmounting and closing ${cryptpart}"
-    prun /usr/bin/umount -l -R ${sicu_dir}/mnt
+    for i in run proc dev tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' sys; do
+        prun /usr/bin/umount "${sicu_dir}/mnt/$i"
+    done
+    prun /usr/bin/umount "${sicu_dir}/mnt"
     prun /usr/sbin/cryptsetup luksClose aeon_root
     echo "100" > ${sicu_pipe}
 }
