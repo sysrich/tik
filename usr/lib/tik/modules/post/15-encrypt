@@ -64,9 +64,13 @@ open_partition() {
     prun /usr/sbin/cryptsetup luksOpen --key-file=${tik_keyfile} ${cryptpart} aeon_root
     echo "35" > ${encrypt_pipe}
     prun /usr/bin/mount -o compress=zstd:1 /dev/mapper/aeon_root ${encrypt_dir}/mnt
-    for i in run proc dev sys tmp 'sys/firmware/efi/efivars' 'sys/fs/cgroup'; do
-        prun /usr/bin/mount --bind "/$i" "${encrypt_dir}/mnt/$i"
-    done
+    prun /usr/bin/mount -t proc /proc "${encrypt_dir}/mnt/proc"
+    prun /usr/bin/mount --bind /sys "${encrypt_dir}/mnt/sys"
+    prun /usr/bin/mount -t securityfs securityfs "${encrypt_dir}/mnt/sys/kernel/security"
+    prun /usr/bin/mount -t efivarfs efivarfs "${encrypt_dir}/mnt/sys/firmware/efi/efivars"
+    prun /usr/bin/mount --bind /dev "${encrypt_dir}/mnt/dev"
+    prun /usr/bin/mount --bind /run "${encrypt_dir}/mnt/run"
+    prun /usr/bin/mount --bind /tmp "${encrypt_dir}/mnt/tmp"
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/aeon_root ${encrypt_dir}/mnt/.snapshots
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/aeon_root ${encrypt_dir}/mnt/var
     # Detect whether /etc is overlay else assume it's a T-U 5.0+ later bind mount
@@ -77,16 +81,10 @@ open_partition() {
         prun /usr/bin/mount -o bind ${encrypt_dir}/mnt/etc ${encrypt_dir}/mnt/etc
     fi
     prun /usr/bin/mount ${esppart} ${encrypt_dir}/mnt/boot/efi
-    prun /usr/bin/mount -t tmpfs tmpfs "${encrypt_dir}/mnt/run"
-    prun /usr/bin/mount -t securityfs securityfs "${encrypt_dir}/mnt/sys/kernel/security"
     echo "42" > ${encrypt_pipe}
 }
 
 configure_encryption() {
-    # If Default Mode has been detected, configure crypttab for TPM
-    if [ "${tik_encrypt_mode}" == 0 ]; then
-        crypttab_opts=',tpm2-device=auto,tpm2-measure-pcr=yes'
-    fi
     echo "# Writing cmdline, crypttab, and fstab" > ${encrypt_pipe}
     log "[configure_encryption] configuring cmdline, crypttab, PCR policy, fstab and populating ${esppart}"
     espUUID=$(lsblk -n -r -o UUID ${esppart})
@@ -96,28 +94,23 @@ configure_encryption() {
     prun /usr/bin/sed -i -e "s,\$, root=UUID=${rootUUID}," ${encrypt_dir}/mnt/etc/kernel/cmdline
     # /etc/crypttab is a hard requirement of sdbootutil for updating predictions
     cryptUUID=$(lsblk -n -r -d -o UUID ${cryptpart})
-    echo "aeon_root UUID=${cryptUUID} none x-initrd.attach${crypttab_opts}" | prun tee ${encrypt_dir}/mnt/etc/crypttab
+    echo "aeon_root UUID=${cryptUUID} none x-initrd.attach" | prun tee ${encrypt_dir}/mnt/etc/crypttab
     echo "# Installing boot loader" > ${encrypt_pipe}
-    # Populate /var if it's empty
-    if [ ! -d ${encrypt_dir}/mnt/var/lib ]; then
-        prun-opt /usr/bin/chroot ${encrypt_dir}/mnt systemd-tmpfiles --create --no-pager
-    fi
-    # If Default mode has been detected, configure PCR policy and PCR15 keys.
+    # FIXME: Dracut gets confused by previous installations on occasion with the default config, override the problematic option temporarily
+    /usr/bin/echo 'hostonly_cmdline="no"' | prun tee ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
+    # Install bootloader with sdbootutil
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2
+    echo "56" > ${encrypt_pipe}
+    echo "# Enrolling recovery key" > ${encrypt_pipe}
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --method=recovery-key enroll 1>&2
+    echo "70" > ${encrypt_pipe}
+    # If Default mode has been detected, configure PCR policy.
     # `etc/sysconfig/fde-tools` must be created before any calls to sdbtools,
     # because sdbootutil expects at least one of the configuration files being
     # present. See
     # https://github.com/openSUSE/sdbootutil/commit/8d3db8b01f5681c11054c37145aad3e3973a7741
     if [ "${tik_encrypt_mode}" == 0 ]; then
-        # Make path for sdbootutil if it doesn't exist
-        if [ ! -d ${encrypt_dir}/mnt/var/lib/sdbootutil ]; then
-            prun /usr/bin/mkdir -p ${encrypt_dir}/mnt/var/lib/sdbootutil
-        fi
-        # Generate keys for signing PCR15 predictions
-        local private="${encrypt_dir}/mnt/var/lib/sdbootutil/measure-pcr-private.pem"
-        local public="${encrypt_dir}/mnt/var/lib/sdbootutil/measure-pcr-public.pem"
-        [ -f "$private" ] || prun openssl genrsa -out "$private" 4096
-        # Writes "writing RSA key" in stderr and -noout is not doing what I was expecting
-        [ -f "$public" ] || prun openssl rsa -in "$private" -pubout -out "$public" 2> /dev/null
+        echo "# Enrolling TPM key" > ${encrypt_pipe}
         # Explaining the chosen PCR list below
         # - 4 - Bootloader and drivers, should never recovery key as bootloader should only be updated with new PCR measurements
         # - 5 - GPT Partition table, should never require recovery key as partition layout shouldn't change
@@ -129,55 +122,52 @@ configure_encryption() {
         # - 1 - Not only changes with CPU/RAM/hardware changes, but also when UEFI config changes are made, which is too common to lockdown
         # - 2 - Includes option ROMs on pluggable hardware, such as external GPUs. Attaching a GPU to your laptop shouldn't hinder booting.
         # - 3 - Firmware from pluggable hardware. Attaching hardware to your laptop shouldn't hinder booting
+        prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --method=tpm2 enroll 1>&2
+     else
+        echo "# Enrolling fallback password" > ${encrypt_pipe}
+        d --width=500 --height=300 --no-wrap --warning --icon=security-high-symbolic --title="Set Encryption Passphrase" --text="This ${TIK_OS_NAME} system is encrypted and will require a Passphrase on every boot\n\nYou will be prompted to set the Passphrase on the next screen\n\nFor more information please visit <tt>https://aeondesktop.org/encrypt</tt>"
+        log "[configure_encryption] Fallback Mode - Prompting user for passphrase for ${cryptpart}"
+        # Not using 'd' function to avoid logging the password
+        # FIXME - Now use 'd' function and logging=false
+        while true
+        do
+            if $gui; then
+                pw=$(zenity --password --title='Set Encryption Passphrase')
+                pw_check=$(zenity --password --title='Type Passphrase Again')
+            else
+                cenity pw --password --title="Set Encryption Passphrase"
+                cenity pw_check --password --title="Type Passphrase Again"
+            fi
+            # Ask again, and double check the user is putting the right passphrase again.
+            if [ "${pw}" != "${pw_check}" ]; then
+                d --warning --no-wrap --title="Passphrase did not match" --text="Please try again"
+                # Reset variable, so we can try again
+                pw=""
+            fi
+            if [ -n "${pw}" ]; then
+                prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"${pw}"
+                # Initrd wasn't generated by install or enroll as no TPM interaction, so do it now.
+                prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi mkinitrd 1>&2
+            fi
+            break
+        done
     fi
-    # Populate ESP
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables install 1>&2
-    echo "56" > ${encrypt_pipe}
-    echo "# Creating initrd" > ${encrypt_pipe}
-    # FIXME: Dracut gets confused by previous installations on occasion with the default config, override the problematic option temporarily
-    /usr/bin/echo 'hostonly_cmdline="no"' | prun tee ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
-    # mkinitrd done by add-all-kernels
-    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --no-variables add-all-kernels 1>&2
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, remove override now initrd done
     prun /usr/bin/rm ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
-    echo "70" > ${encrypt_pipe}
-    # If Default mode has been detected, update predictions and enroll
-    if [ "${tik_encrypt_mode}" == 0 ]; then
-        prun /usr/bin/tee ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service << EOF
-[Unit]
-Description=First Boot Update Predictions
-ConditionSecurity=tpm2
-
-[Service]
-Type=oneshot
-ExecStart=rm /etc/systemd/system/firstboot-update-predictions.service
-ExecStart=rm /etc/systemd/system/default.target.wants/firstboot-update-predictions.service
-ExecStart=/usr/bin/sdbootutil update-predictions
-
-[Install]
-WantedBy=default.target
-EOF
-        prun /usr/bin/ln -s ${encrypt_dir}/mnt/etc/systemd/system/firstboot-update-predictions.service ${encrypt_dir}/mnt/etc/systemd/system/default.target.wants/firstboot-update-predictions.service
-        log "[configure_encryption] Generating Predictions"
-        echo "# Generating TPM Predictions" > ${encrypt_pipe}
-        prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv update-predictions
-        echo "73" > ${encrypt_pipe}
-        log "[configure_encryption] Default Mode - Enrolling ${cryptpart} to TPM 2.0"
-        echo "# Enrolling to TPM" > ${encrypt_pipe}
-        prun /usr/bin/chroot ${encrypt_dir}/mnt systemd-cryptenroll --unlock-key-file=${tik_keyfile} --tpm2-device=auto ${cryptpart}
-        echo "76" > ${encrypt_pipe}
-    fi
+    echo "84" > ${encrypt_pipe}
+    
 }
 
 close_partition() {
     echo "# Closing ${cryptpart}" > ${encrypt_pipe}
     log "[close_partition] unmounting and closing ${cryptpart}"
-    for i in run proc dev run tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' 'sys/fs/cgroup' sys; do
+    for i in proc dev tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' sys; do
         prun /usr/bin/umount "${encrypt_dir}/mnt/$i"
     done
+    prun /usr/bin/umount -l ${encrypt_dir}/mnt/run
     prun /usr/bin/umount ${encrypt_dir}/mnt
     prun /usr/sbin/cryptsetup luksClose aeon_root
-    echo "77" > ${encrypt_pipe}
+    echo "100" > ${encrypt_pipe}
 }
 
 generate_recoveryKey() {
@@ -192,15 +182,11 @@ generate_recoveryKey() {
         c="${raw_key[i]}"
         key="${key}${modhex[$((c>>4))]}${modhex[$((c&15))]}"
     done
-    echo "84" > ${encrypt_pipe}
-}
-
-add_recoveryKey() {
-    echo "# Adding recovery key to ${cryptpart}" > ${encrypt_pipe}
-    log "[add_recoveryKey] adding recovery key to ${cryptpart}"
-    prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"${key}"
-    echo '{"type":"systemd-recovery","keyslots":["2"]}' | prun /usr/sbin/cryptsetup token import "${cryptpart}"
-    echo "100" > ${encrypt_pipe}
+    log "[generate_recoveryKey] adding recovery key to roots sdbootutil user keyring"
+    logging=false
+    pkexec keyctl add user sdbootutil ${key} @u
+    logging=true
+    echo "50" > ${encrypt_pipe}
 }
 
 display_recoveryKey() {
@@ -216,42 +202,11 @@ display_recoveryKey() {
     log "[display_recoveryKey] recovery key dialogue dismissed"
 }
 
-add_key() {
-    if [ "${tik_encrypt_mode}" == 1 ]; then
-        d --width=500 --height=300 --no-wrap --warning --icon=security-high-symbolic --title="Set Encryption Passphrase" --text="This ${TIK_OS_NAME} system is encrypted and will require a Passphrase on every boot\n\nYou will be prompted to set the Passphrase on the next screen\n\nFor more information please visit <tt>https://aeondesktop.org/encrypt</tt>"
-        log "[add_key] Fallback Mode - Prompting user for passphrase for ${cryptpart}"
-        # Not using 'd' function to avoid logging the password
-        # FIXME - Now use 'd' function and logging=false
-        while true
-        do
-            if $gui; then
-                key=$(zenity --password --title='Set Encryption Passphrase')
-                key_check=$(zenity --password --title='Type Passphrase Again')
-            else
-                cenity key --password --title="Set Encryption Passphrase"
-                cenity key_check --password --title="Type Passphrase Again"
-            fi
-            # Ask again, and double check the user is putting the right passphrase again.
-            if [ "${key}" != "${key_check}" ]; then
-                d --warning --no-wrap --title="Passphrase did not match" --text="Please try again"
-                # Reset variable, so we can try again
-                key=""
-            fi
-            if [ -n "${key}" ]; then
-                prun /usr/sbin/cryptsetup luksAddKey --key-file=${tik_keyfile} --batch-mode --force-password "${cryptpart}" <<<"${key}"
-            fi
-            break
-        done
-    fi
-}
-
 crypt_progress &
 find_crypt
 find_esp
 open_partition
+generate_recoveryKey
 configure_encryption
 close_partition
-add_key
-generate_recoveryKey
-add_recoveryKey
 display_recoveryKey

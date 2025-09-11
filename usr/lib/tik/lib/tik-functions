@@ -366,8 +366,10 @@ create_keyfile() {
     # Even if there's no partitions using encryption, systemd-repart will need a key-file defined for the --key-file parameter.
     tik_keyfile=$(prun mktemp /tmp/tik.XXXXXXXXXX)
     log "[create_keyfile] Creating keyfile ${tik_keyfile}"
-    prun /usr/bin/dd bs=512 count=4 if=/dev/urandom of=${tik_keyfile} iflag=fullblock
+    /usr/bin/base64 -w 0 /dev/urandom | head -c 1k | prun tee ${tik_keyfile}
     prun /usr/bin/chmod 400 ${tik_keyfile}
+    # Add the key to roots cryptenroll keyring, and record tik_keyid for either interactions later
+    tik_keyid=$(prun cat ${tik_keyfile} | prun keyctl padd user cryptenroll @u)
 }
 
 wipe_keyfile() {
@@ -378,8 +380,10 @@ wipe_keyfile() {
         # Assumes Slot 0 is always by the key-file at enrolment
         prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --wipe-slot=0 ${probedpart}
     fi
-    # We're done with the key-file, so remove it
+    # We're done with the key-file, so remove it from the filesystem and keyring
     prun /usr/bin/rm ${tik_keyfile}
+    prun keyctl revoke ${tik_keyid}
+    prun keyctl reap
 }
 
 dump_image() {
@@ -443,7 +447,7 @@ dump_image_repart_self() {
     local image_target=$1
     create_keyfile
     log "[dump_image_repart_self] self-deploying"
-    prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file=${tik_keyfile} ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
+    prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file=${tik_keyfile} --generate-fstab=/etc/fstab.repart ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
 }
 
 set_boot_target() {
@@ -455,6 +459,8 @@ set_boot_target() {
     else
         # Cleanup any existing openSUSE boot entries
         prun-opt /usr/sbin/efibootmgr -B -L "openSUSE Boot Manager"
+        # Cleanup any existing ${TIK_OS_NAME} boot entries
+        prun-opt /usr/sbin/efibootmgr -B -L "${TIK_OS_NAME} Boot Manager"
         prun /usr/sbin/efibootmgr -O
         log "[set_boot_target] searching for ESP partition containing /EFI/systemd/shim.efi on ${TIK_INSTALL_DEVICE}"
         probe_partitions ${TIK_INSTALL_DEVICE} "vfat" "/EFI/systemd/shim.efi"
@@ -463,7 +469,7 @@ set_boot_target() {
         fi
         efipartnum=$(lsblk ${probedpart} -p -n -r -o PARTN)
         log "[set_boot_target] found ESP on ${probedpart}, partition number ${efipartnum}"
-        prun /usr/sbin/efibootmgr -c -L "openSUSE Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p ${efipartnum}
+        prun /usr/sbin/efibootmgr -c -L "${TIK_OS_NAME} Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p ${efipartnum}
         # Log to show the resulting eficonfig
         log "[set_boot_target] $(prun /usr/sbin/efibootmgr)"
         efi_already_set=1
