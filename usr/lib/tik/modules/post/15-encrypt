@@ -102,6 +102,7 @@ configure_encryption() {
     prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi install 1>&2
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, remove override now initrd done
     prun /usr/bin/rm ${encrypt_dir}/mnt/etc/dracut.conf.d/99-tik.conf
+    prun /usr/bin/chroot ${encrypt_dir}/mnt sdbootutil -vv --esp-path /boot/efi --method=recovery-key enroll 1>&2
     # If Default mode has been detected, configure PCR policy.
     # `etc/sysconfig/fde-tools` must be created before any calls to sdbtools,
     # because sdbootutil expects at least one of the configuration files being
