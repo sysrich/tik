@@ -56,7 +56,7 @@ open_partition() {
     prun /usr/bin/mount -t efivarfs efivarfs "${sicu_dir}/mnt/sys/firmware/efi/efivars"
     prun /usr/bin/mount --bind /dev "${sicu_dir}/mnt/dev"
     prun /usr/bin/mount --bind /run "${sicu_dir}/mnt/run"
-    prun /usr/bin/mount -t tmpfs tmpfs "${sicu_dir}/mnt/tmp"
+    prun /usr/bin/mount --bind /tmp "${sicu_dir}/mnt/tmp"
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/aeon_root ${sicu_dir}/mnt/.snapshots
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/aeon_root ${sicu_dir}/mnt/var
     # Detect whether /etc is overlay else assume it's a T-U 5.0+ later bind mount
