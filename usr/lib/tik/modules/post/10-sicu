@@ -55,7 +55,7 @@ open_partition() {
     prun /usr/bin/mount -t securityfs securityfs "${sicu_dir}/mnt/sys/kernel/security"
     prun /usr/bin/mount -t efivarfs efivarfs "${sicu_dir}/mnt/sys/firmware/efi/efivars"
     prun /usr/bin/mount --bind /dev "${sicu_dir}/mnt/dev"
-    prun /usr/bin/mount --rbind /run "${sicu_dir}/mnt/run"
+    prun /usr/bin/mount --bind /run "${sicu_dir}/mnt/run"
     prun /usr/bin/mount -t tmpfs tmpfs "${sicu_dir}/mnt/tmp"
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots /dev/mapper/aeon_root ${sicu_dir}/mnt/.snapshots
     prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var /dev/mapper/aeon_root ${sicu_dir}/mnt/var
@@ -90,10 +90,9 @@ sicu() {
 close_partition() {
     echo "# Closing ${cryptpart}" > ${sicu_pipe}
     log "[close_partition] unmounting and closing ${cryptpart}"
-    for i in proc dev tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' sys; do
+    for i in proc dev tmp 'boot/efi' etc var '.snapshots' 'sys/kernel/security' 'sys/firmware/efi/efivars' sys run; do
         prun /usr/bin/umount "${sicu_dir}/mnt/$i"
     done
-    prun /usr/bin/umount -l "${sicu_dir}/mnt/run"
     prun /usr/bin/umount "${sicu_dir}/mnt"
     prun /usr/sbin/cryptsetup luksClose aeon_root
     echo "100" > ${sicu_pipe}
