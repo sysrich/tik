@@ -19,7 +19,7 @@ checkLaptop() {
         #Tested machine is confirmed mobile
         givePowerRecommendation=false
         #Only check for AC and Battery power connections with upower
-        updevices=`/usr/bin/upower -e|grep -E 'AC|BAT'`
+        updevices=`/usr/bin/upower -e|grep -E 'line_power|BAT'`
         for pdev in $updevices; do
             #Get detailed info for each AC and BAT device in upower
             upinfo=`/usr/bin/upower -i $pdev|grep -E 'online|state'`
