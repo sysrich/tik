@@ -46,38 +46,38 @@ fi
 get_disk
 
 if [ -z "${skipbackup}" ]; then
-        # Although Legacy Aeon didn't officially support LUKS encrypted installations,
-        # some users might have nevertheless enabled encryption anyway.
-        # Search for existing crypto_LUKS partitions and, if found, prompt the user
-        # to unlock those so that the migration module can find existing data.
-        for encrypted_partition in $(lsblk ${TIK_INSTALL_DEVICE} -p -n -r -o ID-LINK,FSTYPE|tr -s ' ' ";"|grep ";crypto_LUKS"|cut -d\; -f1); do
-            if [ -e /dev/mapper/crypt_${encrypted_partition} ]; then
-                # Already opened for some reason... do not prompt for the passphrase
-                # but ensure we will clean up afterwards
-                crypt_opened="${crypt_opened} crypt_${encrypted_partition}"
-            else
-                while [ 1 ]; do
-                    if $gui; then
-                        passphrase=$(zenity --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip") || break
-                    else
-                        cenity passphrase --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip" || break
+    # Although Legacy Aeon didn't officially support LUKS encrypted installations,
+    # some users might have nevertheless enabled encryption anyway.
+    # Search for existing crypto_LUKS partitions and, if found, prompt the user
+    # to unlock those so that the migration module can find existing data.
+    for encrypted_partition in $(lsblk ${TIK_INSTALL_DEVICE} -p -n -r -o ID-LINK,FSTYPE|tr -s ' ' ";"|grep ";crypto_LUKS"|cut -d\; -f1); do
+        if [ -e /dev/mapper/crypt_${encrypted_partition} ]; then
+            # Already opened for some reason... do not prompt for the passphrase
+            # but ensure we will clean up afterwards
+            crypt_opened="${crypt_opened} crypt_${encrypted_partition}"
+        else
+            while [ 1 ]; do
+                if $gui; then
+                    passphrase=$(zenity --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip") || break
+                else
+                    cenity passphrase --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip" || break
+                fi
+                if [ -n "${passphrase}" ]; then
+                    echo -n "${passphrase}" | prun /usr/sbin/cryptsetup luksOpen /dev/disk/by-id/${encrypted_partition} crypt_${encrypted_partition}
+                    if [ "${?}" -eq 0 ]; then
+                        crypt_opened="${crypt_opened} crypt_${encrypted_partition}"
+                        # Wait for the mapped device to appear
+                        wait_count=0
+                        while [ ! -e /dev/mapper/crypt_${encrypted_partition} ] && [ ${wait_count} -lt 5 ]; do
+                            sleep 1
+                            wait_count=$((wait_count + 1))
+                        done
+                        break
                     fi
-                    if [ -n "${passphrase}" ]; then
-                        echo -n "${passphrase}" | prun /usr/sbin/cryptsetup luksOpen /dev/disk/by-id/${encrypted_partition} crypt_${encrypted_partition}
-                        if [ "${?}" -eq 0 ]; then
-                            crypt_opened="${crypt_opened} crypt_${encrypted_partition}"
-                            # Wait for the mapped device to appear
-                            wait_count=0
-                            while [ ! -e /dev/mapper/crypt_${encrypted_partition} ] && [ ${wait_count} -lt 5 ]; do
-                                sleep 1
-                                wait_count=$((wait_count + 1))
-                            done
-                            break
-                        fi
-                    fi
-                done
-            fi
-        done
+                fi
+            done
+        fi
+    done
     unset passphrase
 
     # Probe selected disk for a btrfs partition containing /usr/lib/os-release
@@ -127,44 +127,45 @@ if [ -z "${skipbackup}" ]; then
         if [ -d ${mig_dir}/mnt/${snap_dir} ]; then
             prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/${snap_dir}
         fi
-            prun /usr/sbin/btrfs subvolume snapshot -r ${mig_dir}/mnt ${mig_dir}/mnt/${snap_dir}
-            (prun /usr/sbin/btrfs send ${mig_dir}/mnt/${snap_dir} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}) 2>&1 | d --progress --title="Backing up /home" --pulsate --auto-close --no-cancel --width=400
-            prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/${snap_dir}
-            # Probe for subvolumes nested beneath /home and back them up also
-            if (prun-opt /usr/sbin/btrfs subvolume list -o ${mig_dir}/mnt | grep -q "ID "); then
-                prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/${snap_dir} ro false
-                for subsubvol in $(prun-opt /usr/sbin/btrfs subvolume list -o ${mig_dir}/mnt --sort=path | rev | cut -f1 -d' ' | rev | sed 's/^@\/home//'); do
-                    subsubvolname=$(basename $subsubvol)
-                    subsubdirname=$(dirname $subsubvol)
-                    prun /usr/sbin/btrfs subvolume snapshot -r ${mig_dir}/mnt/${subsubvol} ${mig_dir}/mnt/${subsubvolname}
-                    (prun /usr/sbin/btrfs send ${mig_dir}/mnt/${subsubvolname} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/${snap_dir}/${subsubdirname}) 2>&1 | d --progress --title="Backing up containers" --pulsate --auto-close --no-cancel --width=400
-                    prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/${subsubvolname}
-                done
-                prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/${snap_dir} ro true
-            fi
-            prun /usr/bin/umount ${mig_dir}/mnt
-            prun /usr/bin/mount -o compress=zstd:1 ${probedpart} ${mig_dir}/mnt
-            prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var ${probedpart} ${mig_dir}/mnt/var
-            etcmntcmd=$(cat ${mig_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${mig_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${mig_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
-            eval prun "$etcmntcmd"
-            prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534)' ${mig_dir}/mnt/etc/passwd | prun /usr/bin/awk -F':' '{ $7="/bin/bash"; print };' OFS=':' | prun tee ${mig_dir}/passwd.out
-            prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534 && $3 != 65533)' ${mig_dir}/mnt/etc/group | prun tee ${mig_dir}/group.out
-            prun /usr/bin/awk -F'[/:]' '{if ($3 >= 1000 && $3 != 65534) print $1}' ${mig_dir}/mnt/etc/passwd | prun /usr/bin/grep -f - ${mig_dir}/mnt/etc/shadow | prun tee ${mig_dir}/shadow.out
-            prun /usr/bin/cp -a ${mig_dir}/mnt/etc/subuid ${mig_dir}/subuid
-            prun /usr/bin/cp -a ${mig_dir}/mnt/etc/subgid ${mig_dir}/subgid
-            # It's not guaranteed that the system will have existing network configs, custom localtime or AccountsService
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/NetworkManager/system-connections ${mig_dir}/system-connections
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/localtime ${mig_dir}/localtime
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/AccountsService/users ${mig_dir}/users
-            prun-opt /usr/bin/chmod 744 ${mig_dir}/users
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/AccountsService/icons ${mig_dir}/icons
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/bluetooth ${mig_dir}/bluetooth
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/fprint ${mig_dir}/fprint
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/openvpn ${mig_dir}/openvpn
-            prun-opt /usr/bin/umount ${mig_dir}/mnt/etc
-            prun /usr/bin/umount ${mig_dir}/mnt/var
-            prun /usr/bin/umount ${mig_dir}/mnt
-            prun /usr/bin/rmdir ${mig_dir}/mnt
+        prun /usr/sbin/btrfs subvolume snapshot -r ${mig_dir}/mnt ${mig_dir}/mnt/${snap_dir}
+        (prun /usr/sbin/btrfs send ${mig_dir}/mnt/${snap_dir} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}) 2>&1 | d --progress --title="Backing up /home" --pulsate --auto-close --no-cancel --width=400
+        prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/${snap_dir}
+        # Probe for subvolumes nested beneath /home and back them up also
+        if (prun-opt /usr/sbin/btrfs subvolume list -o ${mig_dir}/mnt | grep -q "ID "); then
+            prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/${snap_dir} ro false
+            for subsubvol in $(prun-opt /usr/sbin/btrfs subvolume list -o ${mig_dir}/mnt --sort=path | rev | cut -f1 -d' ' | rev | sed 's/^@\/home//'); do
+                subsubvolname=$(basename $subsubvol)
+                subsubdirname=$(dirname $subsubvol)
+                prun /usr/sbin/btrfs subvolume snapshot -r ${mig_dir}/mnt/${subsubvol} ${mig_dir}/mnt/${subsubvolname}
+                (prun /usr/sbin/btrfs send ${mig_dir}/mnt/${subsubvolname} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/${snap_dir}/${subsubdirname}) 2>&1 | d --progress --title="Backing up containers" --pulsate --auto-close --no-cancel --width=400
+                prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/${subsubvolname}
+            done
+            prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/${snap_dir} ro true
+        fi
+        prun /usr/bin/umount ${mig_dir}/mnt
+        prun /usr/bin/mount -o compress=zstd:1 ${probedpart} ${mig_dir}/mnt
+        prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var ${probedpart} ${mig_dir}/mnt/var
+
+        mount_etc_for_root "${mig_dir}/mnt"
+
+        prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534)' ${mig_dir}/mnt/etc/passwd | prun /usr/bin/awk -F':' '{ $7="/bin/bash"; print };' OFS=':' | prun tee ${mig_dir}/passwd.out
+        prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534 && $3 != 65533)' ${mig_dir}/mnt/etc/group | prun tee ${mig_dir}/group.out
+        prun /usr/bin/awk -F'[/:]' '{if ($3 >= 1000 && $3 != 65534) print $1}' ${mig_dir}/mnt/etc/passwd | prun /usr/bin/grep -f - ${mig_dir}/mnt/etc/shadow | prun tee ${mig_dir}/shadow.out
+        prun /usr/bin/cp -a ${mig_dir}/mnt/etc/subuid ${mig_dir}/subuid
+        prun /usr/bin/cp -a ${mig_dir}/mnt/etc/subgid ${mig_dir}/subgid
+        # It's not guaranteed that the system will have existing network configs, custom localtime or AccountsService
+        prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/NetworkManager/system-connections ${mig_dir}/system-connections
+        prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/localtime ${mig_dir}/localtime
+        prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/AccountsService/users ${mig_dir}/users
+        prun-opt /usr/bin/chmod 744 ${mig_dir}/users
+        prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/AccountsService/icons ${mig_dir}/icons
+        prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/bluetooth ${mig_dir}/bluetooth
+        prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/fprint ${mig_dir}/fprint
+        prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/openvpn ${mig_dir}/openvpn
+        prun-opt /usr/bin/umount ${mig_dir}/mnt/etc
+        prun /usr/bin/umount ${mig_dir}/mnt/var
+        prun /usr/bin/umount ${mig_dir}/mnt
+        prun /usr/bin/rmdir ${mig_dir}/mnt
     fi
 
     # Close eventual mapped LUKS devices

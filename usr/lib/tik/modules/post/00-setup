@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright 2025 SUSE LLC
+# SPDX-FileCopyrightText: Copyright 2025 Richard Brown
+# SPDX-FileCopyrightText: Copyright 2025 Tobias Görgens
+
+TIK_ROOT_MNT=/var/lib/tik/root
+export TIK_ROOT_MNT
+prun /usr/bin/mkdir -p "${TIK_ROOT_MNT}"
+
+# Find ESP partition
+probe_partitions "${TIK_INSTALL_DEVICE}" "vfat"
+if [ -z "${probedpart}" ]; then
+    error "esp partition not found"
+fi
+TIK_ESP_PART="${probedpart}"
+export TIK_ESP_PART
+log "[post-setup] ESP partition is ${TIK_ESP_PART}"
+
+# Find LUKS partition (if any) and open it
+probe_partitions "${TIK_INSTALL_DEVICE}" "crypto_LUKS"
+if [ -n "${probedpart}" ]; then
+    TIK_CRYPT_PART="${probedpart}"
+    export TIK_CRYPT_PART
+    tik_progress_step "Opening encrypted root" 0
+    log "[post-setup] opening encrypted partition ${TIK_CRYPT_PART}"
+    prun /usr/sbin/cryptsetup luksOpen --key-file="${tik_keyfile}" "${TIK_CRYPT_PART}" aeon_root
+    TIK_ROOT_DEV="/dev/mapper/aeon_root"
+else
+    TIK_CRYPT_PART=""
+    export TIK_CRYPT_PART
+    tik_progress_step "Locating root filesystem" 25
+    probe_partitions "${TIK_INSTALL_DEVICE}" "btrfs" "/usr/lib/os-release"
+    if [ -z "${probedpart}" ]; then
+        error "root partition not found"
+    fi
+    TIK_ROOT_DEV="${probedpart}"
+fi
+export TIK_ROOT_DEV
+log "[post-setup] root device is ${TIK_ROOT_DEV}"
+
+tik_progress_step "Mounting installed system" 50
+
+prun /usr/bin/mount -o compress=zstd:1 "${TIK_ROOT_DEV}" "${TIK_ROOT_MNT}"
+prun /usr/bin/mount -t proc /proc "${TIK_ROOT_MNT}/proc"
+prun /usr/bin/mount --bind /sys "${TIK_ROOT_MNT}/sys"
+prun /usr/bin/mount -t securityfs securityfs "${TIK_ROOT_MNT}/sys/kernel/security"
+prun /usr/bin/mount -t efivarfs efivarfs "${TIK_ROOT_MNT}/sys/firmware/efi/efivars"
+prun /usr/bin/mount --bind /dev "${TIK_ROOT_MNT}/dev"
+prun /usr/bin/mount --bind /run "${TIK_ROOT_MNT}/run"
+prun /usr/bin/mount --bind /tmp "${TIK_ROOT_MNT}/tmp"
+prun /usr/bin/mount -o compress=zstd:1,subvol=/@/.snapshots "${TIK_ROOT_DEV}" "${TIK_ROOT_MNT}/.snapshots"
+prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var "${TIK_ROOT_DEV}" "${TIK_ROOT_MNT}/var"
+
+mount_etc_for_root "${TIK_ROOT_MNT}"
+
+prun /usr/bin/mount "${TIK_ESP_PART}" "${TIK_ROOT_MNT}/boot/efi"
+
+tik_progress_step "Installed system mounted" 100

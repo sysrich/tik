@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright 2025 SUSE LLC
 # SPDX-FileCopyrightText: Copyright 2025 Richard Brown
 # SPDX-FileCopyrightText: Copyright 2024 Raymond Yip
+# SPDX-FileCopyrightText: Copyright 2025 Tobias Görgens
 
 proceedInstall() {
     d --info --ok-label="Install Now" --no-wrap --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME}</big>\n\nPlease press <b>Install Now</b> to continue"
@@ -12,27 +13,27 @@ displayACWarningMsg() {
 }
 
 checkLaptop() {
-        chassis=`cat /sys/class/dmi/id/chassis_type`
-        #Test for respectively Handheld, Notebook, Laptop, and Portable
-        #if chassis variable matches 8 9 10 or 11 function continues else it proceeds to test AC power and Battery
-        [[ "$chassis" =~ ^(8|9|10|11)$ ]] || return 
-        #Tested machine is confirmed mobile
-        givePowerRecommendation=false
-        #Only check for AC and Battery power connections with upower
-        updevices=`/usr/bin/upower -e|grep -E 'AC|BAT'`
-        for pdev in $updevices; do
-            #Get detailed info for each AC and BAT device in upower
-            upinfo=`/usr/bin/upower -i $pdev|grep -E 'online|state'`
-            #Check for discharging state or AC power offline which is equal to no state
-            if [[ "$upinfo" =~ (discharging|no) ]]; then
-                #Give power recommendation only once, so set this to true
-                givePowerRecommendation=true
-            fi
-        done
-        if [ "$givePowerRecommendation" = true ]; then
-            log "AC Power disconnected and Battery is not charging"
-            displayACWarningMsg
+    chassis=$(cat /sys/class/dmi/id/chassis_type)
+    # Test for respectively Handheld, Notebook, Laptop, and Portable
+    # If chassis variable matches 8 9 10 or 11 function continues else it proceeds to test AC power and Battery
+    [[ "$chassis" =~ ^(8|9|10|11)$ ]] || return
+    # Tested machine is confirmed mobile
+    givePowerRecommendation=false
+    # Only check for AC and Battery power connections with upower
+    updevices=$(/usr/bin/upower -e | grep -E 'AC|BAT')
+    for pdev in $updevices; do
+        # Get detailed info for each AC and BAT device in upower
+        upinfo=$(/usr/bin/upower -i "$pdev" | grep -E 'online|state')
+        # Check for discharging state or AC power offline which is equal to no state
+        if [[ "$upinfo" =~ (discharging|no) ]]; then
+            # Give power recommendation only once, so set this to true
+            givePowerRecommendation=true
         fi
+    done
+    if [ "$givePowerRecommendation" = true ]; then
+        log "AC Power disconnected and Battery is not charging"
+        displayACWarningMsg
+    fi
 }
 
 verify_efi() {
@@ -44,27 +45,6 @@ verify_efi() {
     fi
 }
 
-setup_env() {
-    # Setup environment for installation, mostly setting GNOME/gsettings vars to prevent screenlocking, etc
-    log "[setup_env] Setting up environment for Installation"
-    gsettings set org.gnome.shell favorite-apps ['']
-    gsettings set org.gnome.desktop.session idle-delay '0'
-    gsettings set org.gnome.desktop.screensaver lock-enabled 'false'
-    gsettings set org.gnome.desktop.screensaver user-switch-enabled 'false'
-    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing'
-    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
-    gsettings set org.gnome.desktop.lockdown disable-lock-screen 'true'
-    gsettings set org.gnome.desktop.lockdown disable-log-out 'true'
-    gsettings set org.gnome.desktop.lockdown disable-printing 'true'
-    gsettings set org.gnome.desktop.lockdown disable-print-setup 'true'
-    gsettings set org.gnome.desktop.lockdown disable-user-switching 'true'
-    gsettings set org.gnome.desktop.lockdown user-administration-disabled 'true'
-    gsettings set org.gnome.software allow-updates 'false'
-    gsettings set org.gnome.software download-updates 'false'
-    gsettings set org.gnome.software download-updates-notify 'false'
-}
-
-setup_env
 proceedInstall
 verify_efi
 checkLaptop
