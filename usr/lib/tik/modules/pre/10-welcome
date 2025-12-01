@@ -15,10 +15,8 @@ checkLaptop() {
         #Test for respectively Handheld, Notebook, Laptop, and Portable
         chassis=`cat /sys/class/dmi/id/chassis_type`
         #if chassis variable matches 8 9 10 or 11 function continues else it proceeds to test AC power and Battery
-        [[ "$chassis" =~ ^(8|9|10|11)$ ]] || return
-          #Only check for Battery status with upower
-          updevices=`/usr/bin/upower -e|grep -E 'DisplayDevice'`
-          if [[ `/usr/bin/upower -i $updevices|awk '/state:/ {print $2}'` == discharging ]]; then
+        [[ "$(< /sys/class/dmi/id/chassis_type)" =~ ^(8|9|10|11)$ ]] || return
+          if [[ `systemd-ac-power -v` == "no" ]]; then
             #if we are discharging show AC warning
             log "AC Power disconnected and Battery is not charging"
             displayACWarningMsg
