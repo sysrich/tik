@@ -130,11 +130,6 @@ probe_partitions() {
                 # Fallback to unix device in order to fix issue with USB devices
                 probedpart="${part}"
                 log "[probe_partitions] Partition ${probedpart} found"
-                if grep -q 'PRETTY_NAME="openSUSE MicroOS"' ${probe_dir}/mnt/${filematch} && [ -f ${probe_dir}/mnt/usr/bin/gnome-shell ]; then
-                    # Found legacy Aeon, activate easter egg
-                    log "Legacy Aeon Install FOUND"
-                    legacy_aeon=1
-                fi
             fi
             prun-opt /usr/bin/umount ${probe_dir}/mnt
         fi
