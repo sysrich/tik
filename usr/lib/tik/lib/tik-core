@@ -543,11 +543,7 @@ EOF
     if [ -f "${fstab_tik}" ]; then
         log "[tik_target_fstab_assemble] found ${fstab_tik}, applying overrides into ${assembled}"
 
-        local tik_tmp
-        tik_tmp="$(prun /usr/bin/mktemp /tmp/tik-fstab-tik.XXXXXXXXXX)"
-        prun /usr/bin/cat "${fstab_tik}" | prun /usr/bin/tee "${tik_tmp}" >/dev/null
-
-        while IFS= read -r line; do
+        prun /usr/bin/cat "${fstab_tik}" | while IFS= read -r line; do
             line="${line#"${line%%[![:space:]]*}"}"
             [ -z "${line}" ] && continue
             [[ "${line}" = \#* ]] && continue
@@ -568,14 +564,10 @@ EOF
 
             tik_target_fstab_override_mountpoint "${assembled}" "${mp}" "${line}"
             log "[tik_target_fstab_assemble] applied override/append for ${mp}"
-        done < "${tik_tmp}"
-
-        prun /usr/bin/rm -f "${tik_tmp}"
+        done
     else
         log "[tik_target_fstab_assemble] no ${fstab_tik} found, not applying tik overrides"
     fi
-
-    prun /usr/bin/chmod 0644 "${assembled}"
 
     echo "${assembled}"
 }
@@ -622,7 +614,7 @@ tik_target_mount_from_fstab() {
 
     log "[tik_target_mount_from_fstab] reading ${fstab}"
 
-    while IFS= read -r line; do
+    prun /usr/bin/cat "${fstab}" | while IFS= read -r line; do
         line="${line#"${line%%[![:space:]]*}"}"
         [ -z "${line}" ] && continue
         [[ "${line}" = \#* ]] && continue
@@ -676,7 +668,7 @@ tik_target_mount_from_fstab() {
         # Track mountpoint for reverse unmount
         TIK_MOUNTED_POINTS="${target}
 ${TIK_MOUNTED_POINTS}"
-    done < "${fstab}"
+    done
 }
 
 tik_target_mount_pseudofs() {
