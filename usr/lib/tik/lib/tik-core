@@ -578,6 +578,8 @@ EOF
         log "[tik_target_fstab_assemble] no ${fstab_tik} found, not applying tik overrides"
     fi
 
+    prun /usr/bin/chmod 0644 "${assembled}"
+
     echo "${assembled}"
 }
 
@@ -594,6 +596,7 @@ tik_target_fstab_install_if_possible() {
             log "[tik_target_fstab_install_if_possible] backed up original fstab to ${backup}"
         fi
         prun /usr/bin/cp -a "${assembled}" "${fstab}"
+        prun /usr/bin/chmod 0644 "${fstab}"
         TIK_TARGET_FSTAB="${fstab}"
         export TIK_TARGET_FSTAB
         return 0
