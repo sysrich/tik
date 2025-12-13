@@ -749,6 +749,16 @@ ${TIK_MOUNTED_POINTS}"
     TIK_MOUNTED_POINTS="${mnt}/sys
 ${TIK_MOUNTED_POINTS}"
 
+    prun /usr/bin/mkdir -p "${mnt}/sys/kernel/security"
+    prun /usr/bin/mount -t securityfs securityfs "${mnt}/sys/kernel/security"
+    TIK_MOUNTED_POINTS="${mnt}/sys/kernel/security
+${TIK_MOUNTED_POINTS}"
+
+    prun /usr/bin/mkdir -p "${mnt}/sys/firmware/efi/efivars"
+    prun /usr/bin/mount -t efivarfs efivarfs "${mnt}/sys/firmware/efi/efivars"
+    TIK_MOUNTED_POINTS="${mnt}/sys/firmware/efi/efivars
+${TIK_MOUNTED_POINTS}"
+
     prun /usr/bin/mount --bind /dev "${mnt}/dev"
     TIK_MOUNTED_POINTS="${mnt}/dev
 ${TIK_MOUNTED_POINTS}"
