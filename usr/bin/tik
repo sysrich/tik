@@ -72,7 +72,11 @@ get_img
 dump_image "${TIK_INSTALL_IMAGE}" "${TIK_INSTALL_DEVICE}"
 reread_partitiontable
 
+tik_target_mount
+
 # Run post modules
 tik_init_phase_modules "post"
 load_modules "post"
 load_modules "post" "custom"
+
+tik_target_unmount

@@ -6,13 +6,7 @@
 # Module that cleans up various things from a SelfInstall deployed system that otherwise can't be filtered out using repart.d config
 
 sicu() {
-    tik_progress_step "Writing fstab" 0
-    log "[sicu] Writing fstab"
-    prun /usr/bin/cat "${TIK_ROOT_MNT}/etc/fstab.repart" | prun tee "${TIK_ROOT_MNT}/etc/fstab"
-    echo "/etc /etc none bind,x-initrd.mount 0 0" | prun tee -a "${TIK_ROOT_MNT}/etc/fstab"
-    prun /usr/bin/rm /etc/fstab.repart
-
-    tik_progress_step "Cleaning up installer user" 50
+    tik_progress_step "Cleaning up installer user" 0
     log "[sicu] Deleting tik user"
     prun /usr/bin/chroot "${TIK_ROOT_MNT}" userdel -r tik
     log "[sicu] Enabling initial-setup"

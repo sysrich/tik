@@ -335,6 +335,278 @@ tik_init_phase_modules() {
     log "[tik_init_phase_modules] phase=${phase} total_modules=${TIK_TOTAL_MODULES}"
 }
 
+tik_is_opt_set() {
+    echo ",$1," | grep -q ",$2,"
+}
+
+tik_rewrite_overlay_opts_for_target() {
+    local opts="$1"
+    local root="$2"
+
+    opts="$(echo "$opts" | sed -E "s#lowerdir=/#lowerdir=${root}/#g; s#upperdir=/#upperdir=${root}/#g; s#workdir=/#workdir=${root}/#g")"
+    opts="$(echo "$opts" | sed -E "s#lowerdir=${root}//#lowerdir=${root}/#g; s#upperdir=${root}//#upperdir=${root}/#g; s#workdir=${root}//#workdir=${root}/#g")"
+    opts="$(echo "$opts" | sed -E "s#lowerdir=(${root}/[^,]*):/#lowerdir=\1:${root}/#g")"
+
+    echo "$opts"
+}
+
+tik_target_mount_prepare() {
+    TIK_ROOT_MNT="${TIK_ROOT_MNT:=/var/lib/tik/root}"
+    export TIK_ROOT_MNT
+    prun /usr/bin/mkdir -p "${TIK_ROOT_MNT}"
+
+    TIK_MOUNTED_POINTS=""
+    TIK_MOUNTED_TARGET=0
+    export TIK_MOUNTED_TARGET
+}
+
+tik_target_find_root_partition() {
+    local fs
+    for fs in btrfs ext4 xfs f2fs; do
+        probe_partitions "${TIK_INSTALL_DEVICE}" "${fs}" "/etc/fstab"
+        if [ -n "${probedpart}" ]; then
+            echo "${probedpart}"
+            return 0
+        fi
+        probe_partitions "${TIK_INSTALL_DEVICE}" "${fs}" "/etc/os-release"
+        if [ -n "${probedpart}" ]; then
+            echo "${probedpart}"
+            return 0
+        fi
+        probe_partitions "${TIK_INSTALL_DEVICE}" "${fs}" "/usr/lib/os-release"
+        if [ -n "${probedpart}" ]; then
+            echo "${probedpart}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+tik_target_open_luks_if_present() {
+    TIK_CRYPT_PART=""
+    TIK_ROOT_DEV=""
+
+    probe_partitions "${TIK_INSTALL_DEVICE}" "crypto_LUKS"
+    if [ -n "${probedpart}" ]; then
+        TIK_CRYPT_PART="${probedpart}"
+        export TIK_CRYPT_PART
+
+        # TODO: mapper name should be distro-specific
+        local mapper_name="tik_root"
+
+        tik_progress_step "Opening encrypted root" 0
+        log "[tik_target_open_luks_if_present] opening encrypted partition ${TIK_CRYPT_PART} as ${mapper_name}"
+
+        if [ -z "${tik_keyfile}" ] || [ ! -f "${tik_keyfile}" ]; then
+            error "Encrypted root found but tik_keyfile is missing"
+        fi
+
+        prun /usr/sbin/cryptsetup luksOpen --key-file="${tik_keyfile}" "${TIK_CRYPT_PART}" "${mapper_name}"
+        TIK_ROOT_DEV="/dev/mapper/${mapper_name}"
+        export TIK_ROOT_DEV
+        return 0
+    fi
+
+    export TIK_CRYPT_PART
+    return 1
+}
+
+tik_target_mount_root() {
+    local rootdev=$1
+    local mnt=$2
+
+    tik_progress_step "Mounting target root" 25
+
+    local fstype
+    fstype="$(lsblk -n -r -o FSTYPE "${rootdev}" 2>/dev/null | head -n1)"
+
+    # Temporarily mount the root to determine the real mount options
+    local tmp_mnt
+    local root_opts
+    tmp_mnt="$(prun /usr/bin/mktemp -d /tmp/tik-rootprobe.XXXXXXXXXX)"
+    log "[tik_target_mount_root] probing mount options for / by temporarily mounting ${rootdev} on ${tmp_mnt}"
+
+    prun /usr/bin/mount -o ro "${rootdev}" "${tmp_mnt}"
+
+    if [ -f "${tmp_mnt}/etc/fstab" ]; then
+        # Read the mount options for the '/' entry
+        root_opts="$(/usr/bin/awk '
+            $0 ~ /^[[:space:]]*#/ { next }
+            NF < 4 { next }
+            $2 == "/" { print $4; exit }
+        ' "${tmp_mnt}/etc/fstab")"
+        log "[tik_target_mount_root] probed root mount options: '${root_opts}'"
+    else
+        log "[tik_target_mount_root] no ${tmp_mnt}/etc/fstab found while probing, falling back to default mount options"
+        root_opts=""
+    fi
+
+    prun-opt /usr/bin/umount "${tmp_mnt}"
+    prun-opt /usr/bin/rmdir "${tmp_mnt}"
+
+    if [ -n "${root_opts}" ] && [ "${root_opts}" != "-" ]; then
+        prun /usr/bin/mount -o "${root_opts}" "${rootdev}" "${mnt}"
+    else
+        prun /usr/bin/mount "${rootdev}" "${mnt}"
+    fi
+
+    # track for unmount
+    TIK_MOUNTED_POINTS="${mnt}
+${TIK_MOUNTED_POINTS}"
+}
+
+tik_target_mount_from_fstab() {
+    local mnt=$1
+    local fstab="${mnt}/etc/fstab"
+
+    if [ ! -f "${fstab}" ]; then
+        log "[tik_target_mount_from_fstab] no fstab at ${fstab}, skipping fstab mounts"
+        return 0
+    fi
+
+    tik_progress_step "Mounting filesystems from fstab" 50
+    log "[tik_target_mount_from_fstab] reading ${fstab}"
+
+    while IFS= read -r line; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        [ -z "${line}" ] && continue
+        [[ "${line}" = \#* ]] && continue
+
+        set -- ${line}
+        local spec="$1"
+        local mp="$2"
+        local fstype="$3"
+        local opts="$4"
+
+        [ -z "${spec}" ] && continue
+        [ -z "${mp}" ] && continue
+        [ -z "${fstype}" ] && continue
+
+        [ "${mp}" = "/" ] && continue
+        [ "${fstype}" = "swap" ] && continue
+
+        case "${fstype}" in
+            proc|sysfs|devtmpfs|devpts|tmpfs|cgroup|cgroup2|securityfs|efivarfs)
+                continue
+                ;;
+        esac
+
+        local target="${mnt}${mp}"
+        prun /usr/bin/mkdir -p "${target}"
+
+        if [ "${fstype}" = "none" ] && (tik_is_opt_set "${opts}" "bind" || tik_is_opt_set "${opts}" "rbind"); then
+            local src="${mnt}${spec}"
+            if tik_is_opt_set "${opts}" "rbind"; then
+                prun /usr/bin/mount --rbind "${src}" "${target}"
+            else
+                prun /usr/bin/mount --bind "${src}" "${target}"
+            fi
+            if tik_is_opt_set "${opts}" "ro" || tik_is_opt_set "${opts}" "nosuid" || tik_is_opt_set "${opts}" "nodev" || tik_is_opt_set "${opts}" "noexec"; then
+                prun /usr/bin/mount -o "remount,${opts}" "${target}"
+            fi
+
+        elif [ "${fstype}" = "overlay" ]; then
+            local newopts
+            newopts="$(tik_rewrite_overlay_opts_for_target "${opts}" "${mnt}")"
+            prun /usr/bin/mount -t overlay overlay -o "${newopts}" "${target}"
+
+        else
+            if [ -n "${opts}" ] && [ "${opts}" != "-" ]; then
+                prun /usr/bin/mount -t "${fstype}" -o "${opts}" "${spec}" "${target}"
+            else
+                prun /usr/bin/mount -t "${fstype}" "${spec}" "${target}"
+            fi
+        fi
+
+        # Track mountpoint for reverse unmount
+        TIK_MOUNTED_POINTS="${target}
+${TIK_MOUNTED_POINTS}"
+    done < "${fstab}"
+}
+
+tik_target_mount_pseudofs() {
+    local mnt=$1
+
+    tik_progress_step "Binding pseudo filesystems" 75
+
+    prun /usr/bin/mount -t proc /proc "${mnt}/proc"
+    TIK_MOUNTED_POINTS="${mnt}/proc
+${TIK_MOUNTED_POINTS}"
+
+    prun /usr/bin/mount --bind /sys "${mnt}/sys"
+    TIK_MOUNTED_POINTS="${mnt}/sys
+${TIK_MOUNTED_POINTS}"
+
+    prun /usr/bin/mount --bind /dev "${mnt}/dev"
+    TIK_MOUNTED_POINTS="${mnt}/dev
+${TIK_MOUNTED_POINTS}"
+
+    prun /usr/bin/mount --bind /run "${mnt}/run"
+    TIK_MOUNTED_POINTS="${mnt}/run
+${TIK_MOUNTED_POINTS}"
+
+    prun /usr/bin/mount --bind /tmp "${mnt}/tmp"
+    TIK_MOUNTED_POINTS="${mnt}/tmp
+${TIK_MOUNTED_POINTS}"
+}
+
+tik_target_mount() {
+    [ "${TIK_MOUNTED_TARGET}" = "1" ] && return 0
+
+    tik_target_mount_prepare
+
+    # determine root device
+    tik_target_open_luks_if_present || true
+
+    if [ -z "${TIK_ROOT_DEV}" ]; then
+        tik_progress_step "Locating root filesystem" 0
+        TIK_ROOT_DEV="$(tik_target_find_root_partition)" || error "root partition not found"
+        export TIK_ROOT_DEV
+    fi
+
+    log "[tik_target_mount] root device is ${TIK_ROOT_DEV}"
+
+    # mount root
+    tik_target_mount_root "${TIK_ROOT_DEV}" "${TIK_ROOT_MNT}"
+
+    # mount everything described by target fstab
+    tik_target_mount_from_fstab "${TIK_ROOT_MNT}"
+
+    # bind pseudo fs for chroot usage
+    tik_target_mount_pseudofs "${TIK_ROOT_MNT}"
+
+    tik_progress_step "Target system mounted" 100
+
+    TIK_MOUNTED_TARGET=1
+    export TIK_MOUNTED_TARGET
+}
+
+tik_target_unmount() {
+    [ "${TIK_MOUNTED_TARGET}" = "1" ] || return 0
+
+    tik_progress_step "Unmounting target system" 0
+
+    # Unmount in reverse order using tracked list
+    local mp
+    while IFS= read -r mp; do
+        [ -z "${mp}" ] && continue
+        prun-opt /usr/bin/umount "${mp}"
+    done <<< "${TIK_MOUNTED_POINTS}"
+
+    # As a last resort, unmount the root mount lazily if still busy
+    prun-opt /usr/bin/umount -l "${TIK_ROOT_MNT}" || true
+
+    # Close luks mapping
+    if [ -n "${TIK_CRYPT_PART}" ]; then
+        log "[tik_target_unmount] closing encrypted root for ${TIK_CRYPT_PART}"
+        prun-opt /usr/sbin/cryptsetup luksClose tik_root
+    fi
+
+    TIK_MOUNTED_POINTS=""
+    TIK_MOUNTED_TARGET=0
+    export TIK_MOUNTED_TARGET
+}
+
 load_modules() {
     local phase=$1
     local module_dir
