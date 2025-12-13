@@ -52,9 +52,11 @@ display_recoveryKey() {
 
 configure_encryption() {
     tik_progress_step "Configuring encryption and boot" 20
+
     log "[configure_encryption] configuring cmdline, crypttab, PCR policy, fstab and populating ${TIK_ESP_PART}"
 
-    espUUID=$(lsblk -n -r -o UUID "${TIK_ESP_PART}")
+    espUUID="$(lsblk -n -r -o UUID "${TIK_ESP_PART}" | head -n1)"
+    [ -n "${espUUID}" ] || error "ESP UUID could not be determined for ${TIK_ESP_PART}"
     prun /usr/bin/gawk -v espUUID="${espUUID}" -i inplace '$2 == "/boot/efi" { $1 = "UUID="espUUID } { print $0 }' "${TIK_ROOT_MNT}/etc/fstab"
 
     # root=UUID= cmdline definition is a hard requirement of sdbootutil for updating predictions

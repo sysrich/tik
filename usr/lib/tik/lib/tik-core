@@ -288,6 +288,7 @@ dump_image_repart_self() {
 
 set_boot_target() {
     local efipartnum
+
     if [ "${debug}" == "1" ]; then
         log "[debug] Not setting EFI boot target"
     elif [ -n "${efi_already_set}" ]; then
@@ -296,13 +297,9 @@ set_boot_target() {
         prun-opt /usr/sbin/efibootmgr -B -L "openSUSE Boot Manager"
         prun-opt /usr/sbin/efibootmgr -B -L "${TIK_OS_NAME} Boot Manager"
         prun /usr/sbin/efibootmgr -O
-        log "[set_boot_target] searching for ESP partition containing /EFI/systemd/shim.efi on ${TIK_INSTALL_DEVICE}"
-        probe_partitions "${TIK_INSTALL_DEVICE}" "vfat" "/EFI/systemd/shim.efi"
-        if [ -z "${probedpart}" ]; then
-            error "esp partition not found"
-        fi
-        efipartnum=$(lsblk "${probedpart}" -p -n -r -o PARTN)
-        log "[set_boot_target] found ESP on ${probedpart}, partition number ${efipartnum}"
+
+        # TIK_ESP_PART is already set during mounting
+        efipartnum=$(lsblk "${TIK_ESP_PART}" -p -n -r -o PARTN)
         prun /usr/sbin/efibootmgr -c -L "${TIK_OS_NAME} Boot Manager" -d "${TIK_INSTALL_DEVICE}" -l "\EFI\systemd\shim.efi" -p ${efipartnum}
         log "[set_boot_target] $(prun /usr/sbin/efibootmgr)"
         efi_already_set=1
@@ -364,6 +361,9 @@ tik_target_mount_prepare() {
     export TIK_TARGET_FSTAB
     TIK_ASSEMBLED_FSTAB=""
     export TIK_ASSEMBLED_FSTAB
+
+    TIK_ESP_PART=""
+    export TIK_ESP_PART
 }
 
 tik_target_find_root_partition() {
@@ -799,6 +799,16 @@ tik_target_mount() {
     # mount everything described by assembled fstab
     tik_target_mount_from_fstab "${TIK_ROOT_MNT}"
 
+    # Probe ESP
+    log "[tik_target_mount] probing for ESP partition on ${TIK_INSTALL_DEVICE}"
+    probe_partitions "${TIK_INSTALL_DEVICE}" "vfat"
+    if [ -z "${probedpart}" ]; then
+        error "esp partition not found"
+    fi
+    TIK_ESP_PART="${probedpart}"
+    export TIK_ESP_PART
+    log "[tik_target_mount] found ESP ${TIK_ESP_PART}"
+
     # After mounts are active, try to install the assembled fstab into the target
     tik_target_fstab_install_if_possible "${TIK_ROOT_MNT}" "${assembled}" || true
 
@@ -829,7 +839,7 @@ tik_target_unmount() {
     # Close luks mapping
     if [ -n "${TIK_CRYPT_PART}" ]; then
         log "[tik_target_unmount] closing encrypted root for ${TIK_CRYPT_PART}"
-        prun-opt /usr/sbin/cryptsetup luksClose tik_root
+        prun-opt /usr/sbin/cryptsetup luksClose aeon_root
     fi
 
     TIK_MOUNTED_POINTS=""
