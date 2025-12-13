@@ -358,6 +358,11 @@ tik_target_mount_prepare() {
     TIK_MOUNTED_POINTS=""
     TIK_MOUNTED_TARGET=0
     export TIK_MOUNTED_TARGET
+
+    TIK_TARGET_FSTAB=""
+    export TIK_TARGET_FSTAB
+    TIK_ASSEMBLED_FSTAB=""
+    export TIK_ASSEMBLED_FSTAB
 }
 
 tik_target_find_root_partition() {
@@ -455,17 +460,6 @@ tik_target_mount_root() {
 ${TIK_MOUNTED_POINTS}"
 }
 
-tik_target_fstab_has_mountpoint() {
-    local fstab=$1
-    local mp=$2
-    /usr/bin/awk -v want="${mp}" '
-        $0 ~ /^[[:space:]]*#/ { next }
-        NF < 2 { next }
-        $2 == want { found=1; exit }
-        END { exit(found ? 0 : 1) }
-    ' "${fstab}"
-}
-
 tik_target_fstab_is_safe_extra_mount() {
     local spec=$1
     local mp=$2
@@ -514,27 +508,46 @@ tik_target_fstab_override_mountpoint() {
     prun /usr/bin/rm -f "${tmp}"
 }
 
-tik_target_fstab_apply_repart_and_tik() {
+tik_target_fstab_can_write_etc() {
+    local mnt=$1
+    local probe="${mnt}/etc/.tik-write-probe.$$"
+    prun-opt /usr/bin/sh -c "touch '${probe}' && rm -f '${probe}'"
+    [ "${retval}" = "0" ]
+}
+
+tik_target_fstab_assemble() {
     local mnt=$1
 
     local fstab="${mnt}/etc/fstab"
     local fstab_repart="${mnt}/etc/fstab.repart"
     local fstab_tik="${mnt}/etc/fstab.tik"
-    local fstab_backup="${mnt}/etc/fstab.tik.orig"
 
-    # Prefer systemd-repart generated fstab if present
+    local assembled
+    assembled="$(prun /usr/bin/mktemp /tmp/tik-assembled-fstab.XXXXXXXXXX)"
+    TIK_ASSEMBLED_FSTAB="${assembled}"
+    export TIK_ASSEMBLED_FSTAB
+
+    # Prefer systemd-repart generated fstab if present, otherwise use existing fstab.
     if [ -f "${fstab_repart}" ]; then
-        log "[tik_target_fstab_apply_repart_and_tik] found ${fstab_repart}, overriding ${fstab}"
-        if [ -f "${fstab}" ] && [ ! -f "${fstab_backup}" ]; then
-            prun /usr/bin/cp -a "${fstab}" "${fstab_backup}"
-            log "[tik_target_fstab_apply_repart_and_tik] backed up original fstab to ${fstab_backup}"
-        fi
-        prun /usr/bin/cp -a "${fstab_repart}" "${fstab}"
+        log "[tik_target_fstab_assemble] using ${fstab_repart} as base fstab"
+        prun /usr/bin/cp -a "${fstab_repart}" "${assembled}"
+    elif [ -f "${fstab}" ]; then
+        log "[tik_target_fstab_assemble] using ${fstab} as base fstab"
+        prun /usr/bin/cp -a "${fstab}" "${assembled}"
+    else
+        log "[tik_target_fstab_assemble] no base fstab found, leaving assembled fstab empty at ${assembled}"
+        prun /usr/bin/tee "${assembled}" >/dev/null <<EOF
+# tik: no base fstab found during installation
+EOF
     fi
 
     # Apply /etc/fstab.tik if present
     if [ -f "${fstab_tik}" ]; then
-        log "[tik_target_fstab_apply_repart_and_tik] found ${fstab_tik}, applying extra mounts to ${fstab}"
+        log "[tik_target_fstab_assemble] found ${fstab_tik}, applying overrides into ${assembled}"
+
+        local tik_tmp
+        tik_tmp="$(prun /usr/bin/mktemp /tmp/tik-fstab-tik.XXXXXXXXXX)"
+        prun /usr/bin/cat "${fstab_tik}" | prun /usr/bin/tee "${tik_tmp}" >/dev/null
 
         while IFS= read -r line; do
             line="${line#"${line%%[![:space:]]*}"}"
@@ -551,19 +564,55 @@ tik_target_fstab_apply_repart_and_tik() {
             [ -z "${fstype}" ] && continue
 
             if ! tik_target_fstab_is_safe_extra_mount "${spec}" "${mp}" "${fstype}"; then
-                log "[tik_target_fstab_apply_repart_and_tik] skipping unsafe fstab.tik entry: ${line}"
+                log "[tik_target_fstab_assemble] skipping unsafe fstab.tik entry: ${line}"
                 continue
             fi
 
-            tik_target_fstab_override_mountpoint "${fstab}" "${mp}" "${line}"
-            log "[tik_target_fstab_apply_repart_and_tik] applied override/append for ${mp}"
-        done < <(prun /usr/bin/cat "${fstab_tik}")
+            tik_target_fstab_override_mountpoint "${assembled}" "${mp}" "${line}"
+            log "[tik_target_fstab_assemble] applied override/append for ${mp}"
+        done < "${tik_tmp}"
+
+        prun /usr/bin/rm -f "${tik_tmp}"
+    else
+        log "[tik_target_fstab_assemble] no ${fstab_tik} found, not applying tik overrides"
     fi
+
+    echo "${assembled}"
+}
+
+tik_target_fstab_install_if_possible() {
+    local mnt=$1
+    local assembled=$2
+    local fstab="${mnt}/etc/fstab"
+    local backup="${mnt}/etc/fstab.tik.orig"
+
+    if tik_target_fstab_can_write_etc "${mnt}"; then
+        log "[tik_target_fstab_install_if_possible] /etc is writable, installing assembled fstab to ${fstab}"
+        if [ -f "${fstab}" ] && [ ! -f "${backup}" ]; then
+            prun /usr/bin/cp -a "${fstab}" "${backup}"
+            log "[tik_target_fstab_install_if_possible] backed up original fstab to ${backup}"
+        fi
+        prun /usr/bin/cp -a "${assembled}" "${fstab}"
+        TIK_TARGET_FSTAB="${fstab}"
+        export TIK_TARGET_FSTAB
+        return 0
+    fi
+
+    log "[tik_target_fstab_install_if_possible] /etc is not writable yet"
+    TIK_TARGET_FSTAB="${assembled}"
+    export TIK_TARGET_FSTAB
+    return 1
 }
 
 tik_target_mount_from_fstab() {
     local mnt=$1
-    local fstab="${mnt}/etc/fstab"
+    local fstab
+
+    if [ -n "${TIK_TARGET_FSTAB}" ]; then
+        fstab="${TIK_TARGET_FSTAB}"
+    else
+        fstab="${mnt}/etc/fstab"
+    fi
 
     if [ ! -f "${fstab}" ]; then
         log "[tik_target_mount_from_fstab] no fstab at ${fstab}, skipping fstab mounts"
@@ -675,11 +724,17 @@ tik_target_mount() {
     # mount root
     tik_target_mount_root "${TIK_ROOT_DEV}" "${TIK_ROOT_MNT}"
 
-    # Prefer fstab.repart and apply fstab.tik before mounting from fstab
-    tik_target_fstab_apply_repart_and_tik "${TIK_ROOT_MNT}"
+    # Assemble fstab in a writable location
+    local assembled
+    assembled="$(tik_target_fstab_assemble "${TIK_ROOT_MNT}")"
+    TIK_TARGET_FSTAB="${assembled}"
+    export TIK_TARGET_FSTAB
 
-    # mount everything described by target fstab
+    # mount everything described by assembled fstab
     tik_target_mount_from_fstab "${TIK_ROOT_MNT}"
+
+    # After mounts are active, try to install the assembled fstab into the target
+    tik_target_fstab_install_if_possible "${TIK_ROOT_MNT}" "${assembled}" || true
 
     # bind pseudo fs for chroot usage
     tik_target_mount_pseudofs "${TIK_ROOT_MNT}"
