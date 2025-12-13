@@ -165,8 +165,16 @@ tik_prepare_progress_pipe() {
 tik_close_progress() {
     if [ -n "${TIK_PROGRESS_PID}" ]; then
         log "[tik_close_progress] stopping progress monitor pid=${TIK_PROGRESS_PID}"
-        kill "${TIK_PROGRESS_PID}" 2>/dev/null || true
+
+        if [ -n "${TIK_PIPE}" ] && [ -p "${TIK_PIPE}" ]; then
+            echo "100" > "${TIK_PIPE}" 2>/dev/null || true
+        fi
+
+        kill -TERM -- "-${TIK_PROGRESS_PID}" 2>/dev/null || true
         wait "${TIK_PROGRESS_PID}" 2>/dev/null || true
+
+        kill -KILL -- "-${TIK_PROGRESS_PID}" 2>/dev/null || true
+
         unset TIK_PROGRESS_PID
     fi
 

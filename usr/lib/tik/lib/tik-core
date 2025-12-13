@@ -398,7 +398,7 @@ tik_target_open_luks_if_present() {
         export TIK_CRYPT_PART
 
         # TODO: mapper name should be distro-specific
-        local mapper_name="tik_root"
+        local mapper_name="aeon_root"
 
         log "[tik_target_open_luks_if_present] opening encrypted partition ${TIK_CRYPT_PART} as ${mapper_name}"
 
