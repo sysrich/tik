@@ -400,7 +400,6 @@ tik_target_open_luks_if_present() {
         # TODO: mapper name should be distro-specific
         local mapper_name="tik_root"
 
-        tik_progress_step "Opening encrypted root" 0
         log "[tik_target_open_luks_if_present] opening encrypted partition ${TIK_CRYPT_PART} as ${mapper_name}"
 
         if [ -z "${tik_keyfile}" ] || [ ! -f "${tik_keyfile}" ]; then
@@ -420,8 +419,6 @@ tik_target_open_luks_if_present() {
 tik_target_mount_root() {
     local rootdev=$1
     local mnt=$2
-
-    tik_progress_step "Mounting target root" 25
 
     local fstype
     fstype="$(lsblk -n -r -o FSTYPE "${rootdev}" 2>/dev/null | head -n1)"
@@ -623,7 +620,6 @@ tik_target_mount_from_fstab() {
         return 0
     fi
 
-    tik_progress_step "Mounting filesystems from fstab" 50
     log "[tik_target_mount_from_fstab] reading ${fstab}"
 
     while IFS= read -r line; do
@@ -686,7 +682,7 @@ ${TIK_MOUNTED_POINTS}"
 tik_target_mount_pseudofs() {
     local mnt=$1
 
-    tik_progress_step "Binding pseudo filesystems" 75
+    log "[tik_target_mount_pseudofs] Binding pseudo filesystems"
 
     prun /usr/bin/mount -t proc /proc "${mnt}/proc"
     TIK_MOUNTED_POINTS="${mnt}/proc
@@ -718,7 +714,6 @@ tik_target_mount() {
     tik_target_open_luks_if_present || true
 
     if [ -z "${TIK_ROOT_DEV}" ]; then
-        tik_progress_step "Locating root filesystem" 0
         TIK_ROOT_DEV="$(tik_target_find_root_partition)" || error "root partition not found"
         export TIK_ROOT_DEV
     fi
@@ -743,7 +738,7 @@ tik_target_mount() {
     # bind pseudo fs for chroot usage
     tik_target_mount_pseudofs "${TIK_ROOT_MNT}"
 
-    tik_progress_step "Target system mounted" 100
+    log "[tik_target_mount] Target system mounted"
 
     TIK_MOUNTED_TARGET=1
     export TIK_MOUNTED_TARGET
@@ -752,7 +747,7 @@ tik_target_mount() {
 tik_target_unmount() {
     [ "${TIK_MOUNTED_TARGET}" = "1" ] || return 0
 
-    tik_progress_step "Unmounting target system" 0
+    log "[tik_target_unmount] Unmounting target system"
 
     # Unmount in reverse order using tracked list
     local mp
