@@ -45,6 +45,9 @@ if [ ! -d "${TIK_IMG_DIR}" ]; then
     error "${TIK_IMG_DIR} does not exist"
 fi
 
+# Determine name of to-be-installed system
+tik_detect_identity
+
 cleanup() {
     retval=$?
     log "[STOP][${retval}] $0"

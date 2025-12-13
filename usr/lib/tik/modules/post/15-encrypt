@@ -65,7 +65,8 @@ configure_encryption() {
 
     # /etc/crypttab is a hard requirement of sdbootutil for updating predictions
     cryptUUID=$(lsblk -n -r -d -o UUID "${TIK_CRYPT_PART}")
-    echo "aeon_root UUID=${cryptUUID} none x-initrd.attach" | prun tee "${TIK_ROOT_MNT}/etc/crypttab"
+    cryptName="${TIK_CRYPT_MAPPER:-cr_root}"
+    echo "${cryptName} UUID=${cryptUUID} none x-initrd.attach" | prun tee "${TIK_ROOT_MNT}/etc/crypttab"
 
     # FIXME: Dracut gets confused by previous installations on occasion with the default config, override the problematic option temporarily
     echo "hostonly_cmdline=\"no\"" | prun tee "${TIK_ROOT_MNT}/etc/dracut.conf.d/99-tik.conf"

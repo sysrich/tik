@@ -2,6 +2,234 @@
 # SPDX-FileCopyrightText: Copyright 2025 SUSE LLC
 # SPDX-FileCopyrightText: Copyright 2025 Tobias Görgens
 
+tik_sanitize_os_id() {
+    # output: sanitized id (lowercase, underscores, letters only; digits removed)
+    local raw="$1"
+    local s
+
+    s="$(echo "${raw}" | tr '[:upper:]' '[:lower:]')"
+    s="$(echo "${s}" | sed -E 's/[[:space:]-]+/_/g')"
+    s="$(echo "${s}" | sed -E 's/[0-9]+//g')"
+    s="$(echo "${s}" | sed -E 's/[^a-z_]+/_/g')"
+    s="$(echo "${s}" | sed -E 's/_+/_/g; s/^_+//; s/_+$//')"
+
+    echo "${s}"
+}
+
+tik_read_info_from_root() {
+    local osr="/etc/os-release"
+    [ -f "${osr}" ] || return 1
+
+    TIK_DETECTED_PRETTY_NAME="$(. "${osr}" 2>/dev/null; echo "${PRETTY_NAME}")"
+    TIK_DETECTED_ID="$(. "${osr}" 2>/dev/null; echo "${ID}")"
+
+    [ -n "${TIK_DETECTED_PRETTY_NAME}" ] || return 1
+    [ -n "${TIK_DETECTED_ID}" ] || return 1
+    return 0
+}
+
+tik_read_info_from_image() {
+    local image_path="$1"
+    local mnt
+    local osr
+
+    TIK_DETECTED_PRETTY_NAME=""
+    TIK_DETECTED_ID=""
+
+    mnt="$(mktemp -d /tmp/tik-dissect.XXXXXXXXXX)"
+    osr="${mnt}/etc/os-release"
+
+    # If this takes too long or fails, we just give up and fall back.
+    prun-opt /usr/bin/timeout 1s /usr/bin/systemd-dissect --quiet --mount "${image_path}" "${mnt}"
+    if [ "${retval}" != "0" ]; then
+        prun-opt /usr/bin/rmdir "${mnt}"
+        return 1
+    fi
+
+    if [ -f "${osr}" ]; then
+        TIK_DETECTED_PRETTY_NAME="$(. "${osr}" 2>/dev/null; echo "${PRETTY_NAME}")"
+        TIK_DETECTED_ID="$(. "${osr}" 2>/dev/null; echo "${ID}")"
+    fi
+
+    prun-opt /usr/bin/umount "${mnt}"
+    prun-opt /usr/bin/rmdir "${mnt}"
+
+    [ -n "${TIK_DETECTED_PRETTY_NAME}" ] || return 1
+    [ -n "${TIK_DETECTED_ID}" ] || return 1
+    return 0
+}
+
+tik_set_identity() {
+    local pretty="$1"
+    local raw_id="$2"
+    local sid
+
+    sid="$(tik_sanitize_os_id "${raw_id}")"
+    if [ -z "${sid}" ]; then
+        sid="cr"
+    fi
+
+    TIK_OS_NAME="${pretty}"
+    export TIK_OS_NAME
+
+    TIK_OS_ID="${sid}"
+    export TIK_OS_ID
+
+    TIK_CRYPT_MAPPER="${TIK_OS_ID}_root"
+    export TIK_CRYPT_MAPPER
+}
+
+tik_set_identity_unknown() {
+    TIK_OS_NAME="UNKNOWN SYSTEM"
+    export TIK_OS_NAME
+
+    TIK_OS_ID="cr"
+    export TIK_OS_ID
+
+    TIK_CRYPT_MAPPER="cr_root"
+    export TIK_CRYPT_MAPPER
+}
+
+tik_set_identity_for_selfdeploy() {
+    if tik_read_info_from_root; then
+        tik_set_identity "${TIK_DETECTED_PRETTY_NAME}" "${TIK_DETECTED_ID}"
+        return 0
+    fi
+    tik_set_identity_unknown
+    return 0
+}
+
+tik_set_identity_for_image() {
+    local img="$1"
+    local base
+    local token
+
+    if tik_read_info_from_image "${TIK_IMG_DIR}/${img}"; then
+        tik_set_identity "${TIK_DETECTED_PRETTY_NAME}" "${TIK_DETECTED_ID}"
+        return 0
+    fi
+
+    base="$(basename "${img}")"
+    base="${base%.raw}"
+    base="${base%.xz}"
+
+    token="$(echo "${base}" | sed -nE 's/^tik-osimage-([^-\.\ ]+).*/\1/p')"
+    if [ -n "${token}" ]; then
+        TIK_OS_NAME="${token}"
+        export TIK_OS_NAME
+
+        TIK_OS_ID="$(tik_sanitize_os_id "${token}")"
+        [ -n "${TIK_OS_ID}" ] || TIK_OS_ID="cr"
+        export TIK_OS_ID
+
+        TIK_CRYPT_MAPPER="${TIK_OS_ID}_root"
+        export TIK_CRYPT_MAPPER
+        return 0
+    fi
+
+    tik_set_identity_unknown
+    return 0
+}
+
+tik_read_info_from_images() {
+    # If multiple images are available and all have the same ID & PRETTY_NAME, use that.
+    # Returns 0 if identity was set, otherwise 1.
+    local img
+    local first_pretty=""
+    local first_id=""
+    local ok=1
+
+    for img in "$@"; do
+        if ! tik_read_info_from_image "${TIK_IMG_DIR}/${img}"; then
+            ok=0
+            break
+        fi
+        if [ -z "${first_pretty}" ]; then
+            first_pretty="${TIK_DETECTED_PRETTY_NAME}"
+            first_id="${TIK_DETECTED_ID}"
+        else
+            if [ "${TIK_DETECTED_PRETTY_NAME}" != "${first_pretty}" ] || [ "${TIK_DETECTED_ID}" != "${first_id}" ]; then
+                ok=0
+                break
+            fi
+        fi
+    done
+
+    if [ "${ok}" = "1" ] && [ -n "${first_pretty}" ] && [ -n "${first_id}" ]; then
+        tik_set_identity "${first_pretty}" "${first_id}"
+        return 0
+    fi
+    return 1
+}
+
+tik_detect_identity() {
+    # establish TIK_OS_NAME + TIK_CRYPT_MAPPER.
+    # Priority:
+    # 0. Config provided => keep it
+    # 1. Selfdeploy (no images found) => read /etc/os-release
+    # 2. One image => try read os-release from image; else name fallback
+    # 3. Multiple images => if all match => use that; else fallback to UNKNOWN now
+
+    # If config already provided identity, prefer it
+    if [ -n "${TIK_OS_NAME}" ]; then
+        export TIK_OS_NAME
+
+        if [ -n "${TIK_CRYPT_MAPPER}" ]; then
+            export TIK_CRYPT_MAPPER
+            return 0
+        fi
+
+        # Only OS name provided -> derive mapper from sanitized name
+        local sid
+        sid="$(tik_sanitize_os_id "${TIK_OS_NAME}")"
+        [ -n "${sid}" ] || sid="cr"
+
+        TIK_OS_ID="${sid}"
+        export TIK_OS_ID
+
+        TIK_CRYPT_MAPPER="${sid}_root"
+        export TIK_CRYPT_MAPPER
+        return 0
+    fi
+
+    local imgs=""
+    local file_type
+    local img_meta
+    local img_filename
+    local count=0
+
+    for file_type in '*.raw.xz' '*.raw'; do
+        for img_meta in $(cd "${TIK_IMG_DIR}" && (stat --printf="%n\t%s\n" ${file_type} 2>/dev/null | tr '	' ":")); do
+            img_filename="$(echo "${img_meta}" | cut -f1 -d:)"
+            imgs="${imgs} ${img_filename}"
+            count=$((count + 1))
+        done
+    done
+
+    if [ -n "${TIK_INSTALL_IMAGE}" ]; then
+        # If config pins an image, treat as single-image identity source.
+        tik_set_identity_for_image "${TIK_INSTALL_IMAGE}"
+        return 0
+    fi
+
+    if [ "${count}" -eq 0 ]; then
+        tik_set_identity_for_selfdeploy
+        return 0
+    fi
+
+    if [ "${count}" -eq 1 ]; then
+        tik_set_identity_for_image ${imgs}
+        return 0
+    fi
+
+    if tik_read_info_from_images ${imgs}; then
+        return 0
+    fi
+
+    tik_set_identity_unknown
+    return 0
+}
+
 get_disk() {
     tik_volid="TIKINSTALL"
     local disk_id="by-id"
@@ -174,6 +402,7 @@ get_img() {
 
     if [ -z "${list_items}" ]; then
         TIK_INSTALL_IMAGE='TIK_SELFDEPLOY'
+        return 0
     fi
 
     img_list=${list_items}
@@ -192,6 +421,13 @@ get_img() {
         else
             d --list --column=Image --column=Size --title="Select A Image" --text="Select the operating system image to install.\n" ${list_items}
             TIK_INSTALL_IMAGE="${result}"
+        fi
+    fi
+
+    # If identity was UNKNOWN due to multi-image mismatch, finalize it now from the selected image.
+    if [ "${TIK_INSTALL_IMAGE}" != "TIK_SELFDEPLOY" ]; then
+        if [ "${TIK_OS_NAME}" = "UNKNOWN SYSTEM" ] || [ -z "${TIK_CRYPT_MAPPER}" ]; then
+            tik_set_identity_for_image "${TIK_INSTALL_IMAGE}"
         fi
     fi
 }
@@ -397,8 +633,7 @@ tik_target_open_luks_if_present() {
         TIK_CRYPT_PART="${probedpart}"
         export TIK_CRYPT_PART
 
-        # TODO: mapper name should be distro-specific
-        local mapper_name="aeon_root"
+        local mapper_name="${TIK_CRYPT_MAPPER:-cr_root}"
 
         log "[tik_target_open_luks_if_present] opening encrypted partition ${TIK_CRYPT_PART} as ${mapper_name}"
 
@@ -839,7 +1074,7 @@ tik_target_unmount() {
     # Close luks mapping
     if [ -n "${TIK_CRYPT_PART}" ]; then
         log "[tik_target_unmount] closing encrypted root for ${TIK_CRYPT_PART}"
-        prun-opt /usr/sbin/cryptsetup luksClose aeon_root
+        prun-opt /usr/sbin/cryptsetup luksClose "${TIK_CRYPT_MAPPER:-cr_root}"
     fi
 
     TIK_MOUNTED_POINTS=""
