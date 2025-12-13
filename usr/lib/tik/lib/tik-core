@@ -455,6 +455,112 @@ tik_target_mount_root() {
 ${TIK_MOUNTED_POINTS}"
 }
 
+tik_target_fstab_has_mountpoint() {
+    local fstab=$1
+    local mp=$2
+    /usr/bin/awk -v want="${mp}" '
+        $0 ~ /^[[:space:]]*#/ { next }
+        NF < 2 { next }
+        $2 == want { found=1; exit }
+        END { exit(found ? 0 : 1) }
+    ' "${fstab}"
+}
+
+tik_target_fstab_is_safe_extra_mount() {
+    local spec=$1
+    local mp=$2
+    local fstype=$3
+
+    # Require absolute mountpoints
+    if [ -z "${mp}" ] || [ "${mp#"/"}" = "${mp}" ]; then
+        return 1
+    fi
+
+    # Basic path traversal guard
+    if echo "${mp}" | grep -qE '(^|/)\.\.($|/)'; then
+        return 1
+    fi
+
+    # Do not allow overriding the root mount or pseudo filesystems
+    case "${mp}" in
+        "/"|"/proc"|"/sys"|"/dev"|"/run"|"/tmp")
+            return 1
+            ;;
+    esac
+
+    return 0
+}
+
+tik_target_fstab_override_mountpoint() {
+    local fstab=$1
+    local mp=$2
+    local newline=$3
+
+    local tmp
+    tmp="$(prun /usr/bin/mktemp /tmp/tik-fstab.XXXXXXXXXX)"
+
+    # Replace the first non-comment entry with the same mountpoint, otherwise append.
+    /usr/bin/awk -v want="${mp}" -v rep="${newline}" '
+        BEGIN { replaced=0 }
+        {
+            if ($0 ~ /^[[:space:]]*#/ || NF < 2) { print; next }
+            if (!replaced && $2 == want) { print rep; replaced=1; next }
+            print
+        }
+        END { if (!replaced) print rep }
+    ' "${fstab}" | prun /usr/bin/tee "${tmp}" >/dev/null
+
+    prun /usr/bin/cp -a "${tmp}" "${fstab}"
+    prun /usr/bin/rm -f "${tmp}"
+}
+
+tik_target_fstab_apply_repart_and_tik() {
+    local mnt=$1
+
+    local fstab="${mnt}/etc/fstab"
+    local fstab_repart="${mnt}/etc/fstab.repart"
+    local fstab_tik="${mnt}/etc/fstab.tik"
+    local fstab_backup="${mnt}/etc/fstab.tik.orig"
+
+    # Prefer systemd-repart generated fstab if present
+    if [ -f "${fstab_repart}" ]; then
+        log "[tik_target_fstab_apply_repart_and_tik] found ${fstab_repart}, overriding ${fstab}"
+        if [ -f "${fstab}" ] && [ ! -f "${fstab_backup}" ]; then
+            prun /usr/bin/cp -a "${fstab}" "${fstab_backup}"
+            log "[tik_target_fstab_apply_repart_and_tik] backed up original fstab to ${fstab_backup}"
+        fi
+        prun /usr/bin/cp -a "${fstab_repart}" "${fstab}"
+    fi
+
+    # Apply /etc/fstab.tik if present
+    if [ -f "${fstab_tik}" ]; then
+        log "[tik_target_fstab_apply_repart_and_tik] found ${fstab_tik}, applying extra mounts to ${fstab}"
+
+        while IFS= read -r line; do
+            line="${line#"${line%%[![:space:]]*}"}"
+            [ -z "${line}" ] && continue
+            [[ "${line}" = \#* ]] && continue
+
+            set -- ${line}
+            local spec="$1"
+            local mp="$2"
+            local fstype="$3"
+
+            [ -z "${spec}" ] && continue
+            [ -z "${mp}" ] && continue
+            [ -z "${fstype}" ] && continue
+
+            if ! tik_target_fstab_is_safe_extra_mount "${spec}" "${mp}" "${fstype}"; then
+                log "[tik_target_fstab_apply_repart_and_tik] skipping unsafe fstab.tik entry: ${line}"
+                continue
+            fi
+
+            tik_target_fstab_override_mountpoint "${fstab}" "${mp}" "${line}"
+            log "[tik_target_fstab_apply_repart_and_tik] applied override/append for ${mp}"
+        done < <(prun /usr/bin/cat "${fstab_tik}")
+    fi
+}
+
 tik_target_mount_from_fstab() {
     local mnt=$1
     local fstab="${mnt}/etc/fstab"
@@ -568,6 +674,9 @@ tik_target_mount() {
 
     # mount root
     tik_target_mount_root "${TIK_ROOT_DEV}" "${TIK_ROOT_MNT}"
+
+    # Prefer fstab.repart and apply fstab.tik before mounting from fstab
+    tik_target_fstab_apply_repart_and_tik "${TIK_ROOT_MNT}"
 
     # mount everything described by target fstab
     tik_target_mount_from_fstab "${TIK_ROOT_MNT}"
