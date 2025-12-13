@@ -416,6 +416,60 @@ tik_target_open_luks_if_present() {
     return 1
 }
 
+tik_target_mountopts_filter() {
+    local opts="$1"
+    local ignore_list="$2"
+
+    if [ -z "${opts}" ] || [ "${opts}" = "-" ]; then
+        echo "${opts}"
+        return 0
+    fi
+
+    /usr/bin/awk -v opts="${opts}" -v ignore="${ignore_list}" '
+        BEGIN {
+            n=split(ignore, ig, /,/)
+            for (i=1;i<=n;i++) {
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", ig[i])
+                if (ig[i] != "") drop[ig[i]]=1
+            }
+
+            m=split(opts, a, /,/)
+            out=""
+            for (j=1;j<=m;j++) {
+                o=a[j]
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", o)
+                if (o=="") continue
+
+                # exact match (e.g. ro)
+                if (drop[o]) continue
+
+                # key=value match (e.g. ro=vfs) where ignore has 'ro' or 'ro=' or 'ro=vfs'
+                split(o, kv, /=/)
+                k=kv[1]
+                if (drop[k]) continue
+                if (drop[k"="]) continue
+                if (drop[o]) continue
+
+                if (out=="") out=o
+                else out=out","o
+            }
+            if (out=="") out="-"
+            print out
+        }
+    '
+}
+
+tik_target_mountopts_ignore_list() {
+    echo "${TIK_MOUNTOPTS_IGNORE_LIST:-ro,ro=vfs}"
+}
+
+tik_target_mountopts_apply_filter() {
+    local opts="$1"
+    local ignore_opts
+    ignore_opts="$(tik_target_mountopts_ignore_list)"
+    tik_target_mountopts_filter "${opts}" "${ignore_opts}"
+}
+
 tik_target_mount_root() {
     local rootdev=$1
     local mnt=$2
@@ -432,8 +486,7 @@ tik_target_mount_root() {
     prun /usr/bin/mount -o ro "${rootdev}" "${tmp_mnt}"
 
     if [ -f "${tmp_mnt}/etc/fstab" ]; then
-        # Read the mount options for the '/' entry
-        root_opts="$(/usr/bin/awk '
+        root_opts="$(prun /usr/bin/awk '
             $0 ~ /^[[:space:]]*#/ { next }
             NF < 4 { next }
             $2 == "/" { print $4; exit }
@@ -446,6 +499,11 @@ tik_target_mount_root() {
 
     prun-opt /usr/bin/umount "${tmp_mnt}"
     prun-opt /usr/bin/rmdir "${tmp_mnt}"
+
+    if [ -n "${root_opts}" ] && [ "${root_opts}" != "-" ]; then
+        root_opts="$(tik_target_mountopts_apply_filter "${root_opts}")"
+        log "[tik_target_mount_root] filtered root mount options: '${root_opts}'"
+    fi
 
     if [ -n "${root_opts}" ] && [ "${root_opts}" != "-" ]; then
         prun /usr/bin/mount -o "${root_opts}" "${rootdev}" "${mnt}"
@@ -491,8 +549,7 @@ tik_target_fstab_override_mountpoint() {
     local tmp
     tmp="$(prun /usr/bin/mktemp /tmp/tik-fstab.XXXXXXXXXX)"
 
-    # Replace the first non-comment entry with the same mountpoint, otherwise append.
-    /usr/bin/awk -v want="${mp}" -v rep="${newline}" '
+    prun /usr/bin/awk -v want="${mp}" -v rep="${newline}" '
         BEGIN { replaced=0 }
         {
             if ($0 ~ /^[[:space:]]*#/ || NF < 2) { print; next }
@@ -543,7 +600,7 @@ EOF
     if [ -f "${fstab_tik}" ]; then
         log "[tik_target_fstab_assemble] found ${fstab_tik}, applying overrides into ${assembled}"
 
-        prun /usr/bin/cat "${fstab_tik}" | while IFS= read -r line; do
+        while IFS= read -r line; do
             line="${line#"${line%%[![:space:]]*}"}"
             [ -z "${line}" ] && continue
             [[ "${line}" = \#* ]] && continue
@@ -564,7 +621,7 @@ EOF
 
             tik_target_fstab_override_mountpoint "${assembled}" "${mp}" "${line}"
             log "[tik_target_fstab_assemble] applied override/append for ${mp}"
-        done
+        done < <(prun /usr/bin/cat "${fstab_tik}")
     else
         log "[tik_target_fstab_assemble] no ${fstab_tik} found, not applying tik overrides"
     fi
@@ -659,7 +716,15 @@ tik_target_mount_from_fstab() {
 
         else
             if [ -n "${opts}" ] && [ "${opts}" != "-" ]; then
-                prun /usr/bin/mount -t "${fstype}" -o "${opts}" "${spec}" "${target}"
+                # Ignore mount options that should not be applied during installation
+                local filtered_opts
+                filtered_opts="$(tik_target_mountopts_apply_filter "${opts}")"
+
+                if [ -n "${filtered_opts}" ] && [ "${filtered_opts}" != "-" ]; then
+                    prun /usr/bin/mount -t "${fstype}" -o "${filtered_opts}" "${spec}" "${target}"
+                else
+                    prun /usr/bin/mount -t "${fstype}" "${spec}" "${target}"
+                fi
             else
                 prun /usr/bin/mount -t "${fstype}" "${spec}" "${target}"
             fi
