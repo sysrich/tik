@@ -137,6 +137,21 @@ probe_partitions() {
     prun /usr/bin/rmdir ${probe_dir}/mnt
 }
 
+mount_etc_for_root() {
+    local root=$1
+
+    if grep -qF 'overlay /etc' "${root}/etc/fstab" ; then
+        local etcmountcmd
+        etcmountcmd=$(grep "overlay /etc" "${root}/etc/fstab" \
+            | sed "s#/sysroot/#${root}/#g" \
+            | sed "s#/work-etc.*#/work-etc ${root}/etc#g" \
+            | sed 's#overlay /etc overlay#/usr/bin/mount -t overlay overlay -o#')
+        eval prun "${etcmountcmd}"
+    else
+        prun /usr/bin/mount -o bind "${root}/etc" "${root}/etc"
+    fi
+}
+
 tik_monitor_progress() {
     if [ -z "${TIK_PIPE}" ]; then
         return 0

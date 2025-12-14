@@ -29,7 +29,7 @@ if [[ $1 == "--debug" ]]; then
 fi
 
 # Check if graphical display is available
-XDG_SESSION="${XDG_SESSION_TYPE:=unspecified}"
+XDG_SESSION_TYPE="${XDG_SESSION_TYPE:=unspecified}"
 if [ "${XDG_SESSION_TYPE}" = "wayland" ] || [ "${XDG_SESSION_TYPE}" = "x11" ] ; then
     gui=true
 else
