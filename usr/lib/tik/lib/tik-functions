@@ -5,6 +5,9 @@
 
 . /usr/lib/tik/lib/cenity
 
+# Helper functions for tik-functions
+. ${tik_dir}/lib/tik-functions-helper
+
 log() {
     if $logging; then
         echo "[${tik_module}][$(date +"%Y%m%d-%T")][LOG] $*" 1>&2
@@ -80,121 +83,6 @@ prun() {
     fi
 }
 
-get_persistent_device_from_unix_node() {
-    local unix_device=$1
-    local schema=$2
-    local node
-    local persistent_name
-    node=$(basename "${unix_device}")
-    for persistent_name in /dev/disk/"${schema}"/*; do
-        if [ "$(basename "$(readlink "${persistent_name}")")" = "${node}" ]; then
-            if [[ ${persistent_name} =~ ^/dev/disk/"${schema}"/nvme-eui ]]; then
-                # Filter out nvme-eui nodes as they are not descriptive to the user
-                continue
-            fi
-            echo "${persistent_name}"
-            return
-        fi
-    done
-    warn "Could not find <tt>${schema}</tt> representation of <tt>${node}</tt>. Using original device <tt>${unix_device}</tt>"
-    echo "${unix_device}"
-}
-
-probe_partitions() {
-    local probe_dir=/var/lib/tik/probe
-    local filesystem_type=$2
-    local filematch=$3
-    local device=$1
-    local mountops
-    local part
-
-    if [[ "${filesystem_type}" == "btrfs" ]]; then
-        mountops="-o compress=zstd:1"
-    fi
-
-    prun /usr/bin/mkdir -p ${probe_dir}/mnt
-    probedpart=""
-
-    for part in $(lsblk ${device} -p -n -r -o ID-LINK,FSTYPE | tr -s ' ' ";" | grep ";${filesystem_type}" | cut -d\; -f1); do
-        if [ -z "${filematch}" ]; then
-            log "[probe_partitions] no file match required"
-            # Fallback to unix device in order to fix issue with USB devices
-            probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
-            log "[probe_partitions] Partition ${probedpart} found"
-        else    # Check if ${filematch} exists
-            # Fallback to unix device in order to fix issue with USB devices
-            part="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
-            prun /usr/bin/mount ${mountops} ${part} "${probe_dir}/mnt"
-            if [ -f ${probe_dir}/mnt/${filematch} ]; then
-                log "[probe_partitions] File ${filematch} found"
-                # Fallback to unix device in order to fix issue with USB devices
-                probedpart="${part}"
-                log "[probe_partitions] Partition ${probedpart} found"
-            fi
-            prun-opt /usr/bin/umount ${probe_dir}/mnt
-        fi
-    done
-    prun /usr/bin/rmdir ${probe_dir}/mnt
-}
-
-mount_etc_for_root() {
-    local root=$1
-
-    if grep -qF 'overlay /etc' "${root}/etc/fstab" ; then
-        local etcmountcmd
-        etcmountcmd=$(grep "overlay /etc" "${root}/etc/fstab" \
-            | sed "s#/sysroot/#${root}/#g" \
-            | sed "s#/work-etc.*#/work-etc ${root}/etc#g" \
-            | sed 's#overlay /etc overlay#/usr/bin/mount -t overlay overlay -o#')
-        eval prun "${etcmountcmd}"
-    else
-        prun /usr/bin/mount -o bind "${root}/etc" "${root}/etc"
-    fi
-}
-
-tik_monitor_progress() {
-    if [ -z "${TIK_PIPE}" ]; then
-        return 0
-    fi
-    log "[progress] Monitoring installation progress"
-    (tail -f "${TIK_PIPE}") | d --progress --title="${TIK_PROGRESS_TITLE}" --auto-close --no-cancel --width=400
-    log "[progress] Progress UI closed"
-}
-
-tik_prepare_progress_pipe() {
-    TIK_PIPE=/tmp/tikpipe
-    export TIK_PIPE
-    [ -p "${TIK_PIPE}" ] || mkfifo "${TIK_PIPE}"
-
-    tik_monitor_progress &
-    TIK_PROGRESS_PID=$!
-
-    log "[tik_prepare_progress_pipe] progress pipe ready (pid=${TIK_PROGRESS_PID})"
-}
-
-tik_close_progress() {
-    if [ -n "${TIK_PROGRESS_PID}" ]; then
-        log "[tik_close_progress] stopping progress monitor pid=${TIK_PROGRESS_PID}"
-
-        if [ -n "${TIK_PIPE}" ] && [ -p "${TIK_PIPE}" ]; then
-            echo "100" > "${TIK_PIPE}" 2>/dev/null || true
-        fi
-
-        kill -TERM -- "-${TIK_PROGRESS_PID}" 2>/dev/null || true
-        wait "${TIK_PROGRESS_PID}" 2>/dev/null || true
-
-        kill -KILL -- "-${TIK_PROGRESS_PID}" 2>/dev/null || true
-
-        unset TIK_PROGRESS_PID
-    fi
-
-    if [ -n "${TIK_PIPE}" ] && [ -p "${TIK_PIPE}" ]; then
-        log "[tik_close_progress] removing progress pipe ${TIK_PIPE}"
-        rm -f "${TIK_PIPE}" 2>/dev/null || true
-    fi
-    unset TIK_PIPE
-}
-
 tik_progress_step() {
     # Create progress UI when first used in this phase
     [ -n "${TIK_PROGRESS_PID}" ] || tik_prepare_progress_pipe
@@ -221,4 +109,183 @@ tik_progress_step() {
 
     echo "# ${message}" > "${TIK_PIPE}"
     echo "${overall_percent}" > "${TIK_PIPE}"
+}
+
+tik_unmount() {
+    local prefix="$1"
+    local listvar="${2:-TIK_MOUNTED_POINTS}"
+    local mp
+
+    [ -n "${prefix}" ] || return 0
+
+    local -n _ml="${listvar}"
+
+    log "[tik_unmount] unmounting ${prefix} (list=${listvar})"
+    while IFS= read -r mp; do
+        [ -z "${mp}" ] && continue
+        case "${mp}" in
+            "${prefix}"|${prefix}/*)
+                prun-opt /usr/bin/umount "${mp}"
+                ;;
+        esac
+    done <<< "${_ml}"
+
+    tik_untrack_mountpoint "${prefix}" "${listvar}"
+}
+
+tik_mount() {
+    # Mount a device and track it.
+    # If the 2nd argument is an absolute path, mount there.
+    # Otherwise, mount at a subfolder of TIK_ROOT_MNT.
+    local dev="$1"
+    local path="$2"
+    local opts="$3"
+    local fstype="$4"
+    local listvar="${5:-TIK_MOUNTED_POINTS}"
+    local overlay_root_prefix="$6"
+
+    [ -n "${dev}" ] || error "tik_mount: missing device"
+    [ -n "${path}" ] || error "tik_mount: missing target/subpath"
+
+    local target=""
+
+    case "${path}" in
+        /*)
+            target="${path}"
+            ;;
+        *)
+            [ -n "${TIK_ROOT_MNT}" ] || error "tik_mount: TIK_ROOT_MNT not set"
+            if echo "${path}" | grep -qE '(^|/)\.\.($|/)'; then
+                error "tik_mount: unsafe subpath '${path}'"
+            fi
+            target="${TIK_ROOT_MNT%/}/${path}"
+            ;;
+    esac
+
+    case "${target}" in
+        /*) ;;
+        *) error "tik_mount: target must be absolute (got '${target}')" ;;
+    esac
+
+    log "[tik_mount] mounting ${dev} at ${target} opts='${opts}' fstype='${fstype}' (list=${listvar})"
+    prun /usr/bin/mkdir -p "${target}"
+
+    if [ "${fstype}" = "none" ] && (tik_is_opt_set "${opts}" "bind" || tik_is_opt_set "${opts}" "rbind"); then
+        if tik_is_opt_set "${opts}" "rbind"; then
+            prun /usr/bin/mount --rbind "${dev}" "${target}"
+        else
+            prun /usr/bin/mount --bind "${dev}" "${target}"
+        fi
+        if tik_is_opt_set "${opts}" "ro" || tik_is_opt_set "${opts}" "nosuid" || tik_is_opt_set "${opts}" "nodev" || tik_is_opt_set "${opts}" "noexec"; then
+            prun /usr/bin/mount -o "remount,${opts}" "${target}"
+        fi
+
+    elif [ "${fstype}" = "overlay" ]; then
+        local newopts="${opts}"
+        if [ -n "${overlay_root_prefix}" ]; then
+            newopts="$(tik_rewrite_overlay_opts "${opts}" "${overlay_root_prefix}")"
+        fi
+        prun /usr/bin/mount -t overlay overlay -o "${newopts}" "${target}"
+
+    else
+        if [ -n "${fstype}" ]; then
+            if [ -n "${opts}" ]; then
+                prun /usr/bin/mount -t "${fstype}" -o "${opts}" "${dev}" "${target}"
+            else
+                prun /usr/bin/mount -t "${fstype}" "${dev}" "${target}"
+            fi
+        else
+            if [ -n "${opts}" ]; then
+                prun /usr/bin/mount -o "${opts}" "${dev}" "${target}"
+            else
+                prun /usr/bin/mount "${dev}" "${target}"
+            fi
+        fi
+    fi
+
+    tik_track_mountpoint "${target}" "${listvar}"
+}
+
+tik_target_mount() {
+    # $1 = mapper override
+    # $2 = mode: required | optional
+    local mapper_override="$1"
+    local mode="${2:-required}"
+
+    [ "${TIK_MOUNTED_TARGET}" = "1" ] && return 0
+
+    tik_target_mount_prepare
+
+    # open root device
+    tik_target_open "${mapper_override}" "${mode}"
+    case "$?" in
+        0) ;;
+        1)
+            if [ "${mode}" = "required" ]; then
+                error "No encrypted system found where one was required"
+            fi
+            return 1
+            ;;
+        2)
+            return 2
+            ;;
+    esac
+
+    if [ -z "${TIK_ROOT_DEV}" ]; then
+        if ! TIK_ROOT_DEV="$(tik_target_find_root_partition)"; then
+            if [ "${mode}" = "required" ]; then
+                error "No existing system found"
+            fi
+            return 1
+        fi
+        export TIK_ROOT_DEV
+    fi
+
+    log "[tik_target_mount] root device is ${TIK_ROOT_DEV}"
+
+    # mount root
+    tik_target_mount_root "${TIK_ROOT_DEV}" "${TIK_ROOT_MNT}"
+
+    # Assemble fstab in a writable location
+    local assembled
+    assembled="$(tik_target_fstab_assemble "${TIK_ROOT_MNT}")"
+    TIK_TARGET_FSTAB="${assembled}"
+    export TIK_TARGET_FSTAB
+    TIK_ASSEMBLED_FSTAB="${assembled}"
+    export TIK_ASSEMBLED_FSTAB
+
+    # mount everything described by assembled fstab
+    tik_target_mount_from_fstab "${TIK_ROOT_MNT}"
+
+    # Probe ESP
+    log "[tik_target_mount] probing for ESP partition on ${TIK_INSTALL_DEVICE}"
+    probe_partitions "${TIK_INSTALL_DEVICE}" "vfat"
+    if [ -n "${probedpart}" ]; then
+        TIK_ESP_PART="${probedpart}"
+        export TIK_ESP_PART
+        log "[tik_target_mount] found ESP ${TIK_ESP_PART}"
+    else
+        log "[tik_target_mount] no ESP found (continuing)"
+        TIK_ESP_PART=""
+        export TIK_ESP_PART
+    fi
+
+    # bind pseudo fs for chroot usage
+    tik_target_mount_pseudofs "${TIK_ROOT_MNT}"
+
+    log "[tik_target_mount] Target system mounted"
+
+    TIK_MOUNTED_TARGET=1
+    export TIK_MOUNTED_TARGET
+}
+
+tik_target_write_fstab() {
+    [ "${TIK_MOUNTED_TARGET}" = "1" ] || error "tik_target_write_fstab: target system not mounted"
+
+    # Install assembled fstab into the target if possible
+    if [ -n "${TIK_ASSEMBLED_FSTAB}" ] && [ -f "${TIK_ASSEMBLED_FSTAB}" ]; then
+        tik_target_fstab_install "${TIK_ROOT_MNT}" "${TIK_ASSEMBLED_FSTAB}" || true
+    else
+        error "tik_target_write_fstab: no assembled fstab available"
+    fi
 }

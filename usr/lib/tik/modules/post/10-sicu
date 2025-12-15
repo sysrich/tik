@@ -6,6 +6,9 @@
 # Module that cleans up various things from a SelfInstall deployed system that otherwise can't be filtered out using repart.d config
 
 sicu() {
+    tik_target_mount "" "required"
+    tik_target_write_fstab
+
     tik_progress_step "Cleaning up installer user" 0
     log "[sicu] Deleting tik user"
     prun /usr/bin/chroot "${TIK_ROOT_MNT}" userdel -r tik

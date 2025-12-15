@@ -1,0 +1,356 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright 2025 SUSE LLC
+# SPDX-FileCopyrightText: Copyright 2025 Tobias Görgens
+
+tik_sanitize_os_id() {
+    # output: sanitized id (lowercase, underscores, letters only; digits removed)
+    local raw="$1"
+    local s
+
+    s="$(echo "${raw}" | tr '[:upper:]' '[:lower:]')"
+    s="$(echo "${s}" | sed -E 's/[[:space:]-]+/_/g')"
+    s="$(echo "${s}" | sed -E 's/[0-9]+//g')"
+    s="$(echo "${s}" | sed -E 's/[^a-z_]+/_/g')"
+    s="$(echo "${s}" | sed -E 's/_+/_/g; s/^_+//; s/_+$//')"
+
+    echo "${s}"
+}
+
+tik_set_identity_from_name() {
+    local pretty="$1"
+    local sid
+
+    [ -n "${pretty}" ] || pretty="UNKNOWN SYSTEM"
+
+    sid="$(tik_sanitize_os_id "${pretty}")"
+    [ -n "${sid}" ] || sid="cr"
+
+    TIK_OS_NAME="${pretty}"
+    export TIK_OS_NAME
+
+    TIK_OS_ID="${sid}"
+    export TIK_OS_ID
+
+    TIK_CRYPT_MAPPER="${sid}_root"
+    export TIK_CRYPT_MAPPER
+}
+
+tik_read_info_from_root() {
+    local osr="/etc/os-release"
+    [ -f "${osr}" ] || return 1
+
+    TIK_DETECTED_PRETTY_NAME="$(. "${osr}" 2>/dev/null; echo "${PRETTY_NAME}")"
+    TIK_DETECTED_ID="$(. "${osr}" 2>/dev/null; echo "${ID}")"
+
+    [ -n "${TIK_DETECTED_PRETTY_NAME}" ] || return 1
+    [ -n "${TIK_DETECTED_ID}" ] || return 1
+    return 0
+}
+
+tik_read_info_from_image() {
+    local image_path="$1"
+    local mnt
+    local osr
+
+    TIK_DETECTED_PRETTY_NAME=""
+    TIK_DETECTED_ID=""
+
+    mnt="$(mktemp -d /tmp/tik-dissect.XXXXXXXXXX)"
+    osr="${mnt}/etc/os-release"
+
+    # If this takes too long or fails, we just give up and fall back.
+    prun-opt /usr/bin/timeout 1s /usr/bin/systemd-dissect --quiet --mount "${image_path}" "${mnt}"
+    if [ "${retval}" != "0" ]; then
+        prun-opt /usr/bin/rmdir "${mnt}"
+        return 1
+    fi
+
+    if [ -f "${osr}" ]; then
+        TIK_DETECTED_PRETTY_NAME="$(. "${osr}" 2>/dev/null; echo "${PRETTY_NAME}")"
+        TIK_DETECTED_ID="$(. "${osr}" 2>/dev/null; echo "${ID}")"
+    fi
+
+    prun-opt /usr/bin/umount "${mnt}"
+    prun-opt /usr/bin/rmdir "${mnt}"
+
+    [ -n "${TIK_DETECTED_PRETTY_NAME}" ] || return 1
+    [ -n "${TIK_DETECTED_ID}" ] || return 1
+    return 0
+}
+
+tik_set_identity() {
+    local pretty="$1"
+    local raw_id="$2"
+    local sid
+
+    sid="$(tik_sanitize_os_id "${raw_id}")"
+    if [ -z "${sid}" ]; then
+        sid="cr"
+    fi
+
+    TIK_OS_NAME="${pretty}"
+    export TIK_OS_NAME
+
+    TIK_OS_ID="${sid}"
+    export TIK_OS_ID
+
+    TIK_CRYPT_MAPPER="${TIK_OS_ID}_root"
+    export TIK_CRYPT_MAPPER
+}
+
+tik_set_identity_unknown() {
+    TIK_OS_NAME="UNKNOWN SYSTEM"
+    export TIK_OS_NAME
+
+    TIK_OS_ID="cr"
+    export TIK_OS_ID
+
+    TIK_CRYPT_MAPPER="cr_root"
+    export TIK_CRYPT_MAPPER
+}
+
+tik_set_identity_for_selfdeploy() {
+    if tik_read_info_from_root; then
+        tik_set_identity "${TIK_DETECTED_PRETTY_NAME}" "${TIK_DETECTED_ID}"
+        return 0
+    fi
+    tik_set_identity_unknown
+    return 0
+}
+
+tik_set_identity_for_image() {
+    local img="$1"
+    local base
+    local token
+
+    if tik_read_info_from_image "${TIK_IMG_DIR}/${img}"; then
+        tik_set_identity "${TIK_DETECTED_PRETTY_NAME}" "${TIK_DETECTED_ID}"
+        return 0
+    fi
+
+    base="$(basename "${img}")"
+    base="${base%.raw}"
+    base="${base%.xz}"
+
+    token="$(echo "${base}" | sed -nE 's/^tik-osimage-([^-\.\ ]+).*/\1/p')"
+    if [ -n "${token}" ]; then
+        TIK_OS_NAME="${token}"
+        export TIK_OS_NAME
+
+        TIK_OS_ID="$(tik_sanitize_os_id "${token}")"
+        [ -n "${TIK_OS_ID}" ] || TIK_OS_ID="cr"
+        export TIK_OS_ID
+
+        TIK_CRYPT_MAPPER="${TIK_OS_ID}_root"
+        export TIK_CRYPT_MAPPER
+        return 0
+    fi
+
+    tik_set_identity_unknown
+    return 0
+}
+
+tik_read_info_from_images() {
+    # If multiple images are available and all have the same ID & PRETTY_NAME, use that.
+    # Returns 0 if identity was set, otherwise 1.
+    local img
+    local first_pretty=""
+    local first_id=""
+    local ok=1
+
+    for img in "$@"; do
+        if ! tik_read_info_from_image "${TIK_IMG_DIR}/${img}"; then
+            ok=0
+            break
+        fi
+        if [ -z "${first_pretty}" ]; then
+            first_pretty="${TIK_DETECTED_PRETTY_NAME}"
+            first_id="${TIK_DETECTED_ID}"
+        else
+            if [ "${TIK_DETECTED_PRETTY_NAME}" != "${first_pretty}" ] || [ "${TIK_DETECTED_ID}" != "${first_id}" ]; then
+                ok=0
+                break
+            fi
+        fi
+    done
+
+    if [ "${ok}" = "1" ] && [ -n "${first_pretty}" ] && [ -n "${first_id}" ]; then
+        tik_set_identity "${first_pretty}" "${first_id}"
+        return 0
+    fi
+    return 1
+}
+
+get_persistent_device_from_unix_node() {
+    local unix_device=$1
+    local schema=$2
+    local node
+    local persistent_name
+    node=$(basename "${unix_device}")
+    for persistent_name in /dev/disk/"${schema}"/*; do
+        if [ "$(basename "$(readlink "${persistent_name}")")" = "${node}" ]; then
+            if [[ ${persistent_name} =~ ^/dev/disk/"${schema}"/nvme-eui ]]; then
+                # Filter out nvme-eui nodes as they are not descriptive to the user
+                continue
+            fi
+            echo "${persistent_name}"
+            return
+        fi
+    done
+    warn "Could not find <tt>${schema}</tt> representation of <tt>${node}</tt>. Using original device <tt>${unix_device}</tt>"
+    echo "${unix_device}"
+}
+
+probe_partitions() {
+    local probe_dir=/var/lib/tik/probe
+    local filesystem_type=$2
+    local filematch=$3
+    local device=$1
+    local mountops
+    local part
+
+    if [[ "${filesystem_type}" == "btrfs" ]]; then
+        mountops="-o compress=zstd:1"
+    fi
+
+    prun /usr/bin/mkdir -p ${probe_dir}/mnt
+    probedpart=""
+
+    for part in $(lsblk ${device} -p -n -r -o ID-LINK,FSTYPE | tr -s ' ' ";" | grep ";${filesystem_type}" | cut -d\; -f1); do
+        if [ -z "${filematch}" ]; then
+            log "[probe_partitions] no file match required"
+            # Fallback to unix device in order to fix issue with USB devices
+            probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
+            log "[probe_partitions] Partition ${probedpart} found"
+        else    # Check if ${filematch} exists
+            # Fallback to unix device in order to fix issue with USB devices
+            part="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
+            prun /usr/bin/mount ${mountops} ${part} "${probe_dir}/mnt"
+            if [ -f ${probe_dir}/mnt/${filematch} ]; then
+                log "[probe_partitions] File ${filematch} found"
+                # Fallback to unix device in order to fix issue with USB devices
+                probedpart="${part}"
+                log "[probe_partitions] Partition ${probedpart} found"
+            fi
+            prun-opt /usr/bin/umount ${probe_dir}/mnt
+        fi
+    done
+    prun /usr/bin/rmdir ${probe_dir}/mnt
+}
+
+create_keyfile() {
+    tik_keyfile=$(prun mktemp /tmp/tik.XXXXXXXXXX)
+    log "[create_keyfile] Creating keyfile ${tik_keyfile}"
+    /usr/bin/base64 -w 0 /dev/urandom | head -c 1k | prun tee "${tik_keyfile}"
+    prun /usr/bin/chmod 400 "${tik_keyfile}"
+    tik_keyid=$(prun cat "${tik_keyfile}" | prun keyctl padd user cryptenroll @u)
+}
+
+wipe_keyfile() {
+    log "[wipe_keyfile] Deleting keyfile ${tik_keyfile}"
+
+    local crypt_part="${TIK_CRYPT_PART}"
+
+    if [ -z "${crypt_part}" ]; then
+        probe_partitions "${TIK_INSTALL_DEVICE}" "crypto_LUKS"
+        crypt_part="${probedpart}"
+    fi
+
+    if [ -n "${crypt_part}" ] && [ -n "${tik_keyfile}" ] && [ -f "${tik_keyfile}" ]; then
+        prun /usr/bin/systemd-cryptenroll --unlock-key-file="${tik_keyfile}" --wipe-slot=0 "${crypt_part}"
+    else
+        log "[wipe_keyfile] no LUKS partition or keyfile found, skipping slot wipe"
+    fi
+
+    prun-opt /usr/bin/rm "${tik_keyfile}"
+    prun-opt keyctl revoke "${tik_keyid}"
+    prun-opt keyctl reap
+}
+
+dump_image_dd() {
+    local image_source_files=$1
+    local image_target=$2
+    log "[dump_image_dd] deploying ${TIK_IMG_DIR}/${image_source_files}"
+    (xzcat "${TIK_IMG_DIR}/${image_source_files}" | pv -f -F "# %b copied in %t %r" | prun /usr/bin/dd of="${image_target}" bs=64k) 2>&1 | d --progress --title="Installing ${TIK_OS_NAME}" --pulsate --auto-close --no-cancel --width=400
+    prun /usr/bin/sync | d --progress --title="Syncing" --pulsate --auto-close --no-cancel --width=400
+}
+
+dump_image_repart_image() {
+    local image_source_files=$1
+    local image_target=$2
+    local success=0
+    local max_attempts=5
+    local attempt_num=1
+
+    create_keyfile
+    log "[dump_image_repart_image] deploying ${TIK_IMG_DIR}/${image_source_files}"
+
+    while [ ${success} = 0 ] && [ ${attempt_num} -lt ${max_attempts} ]; do
+        prun-opt systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file="${tik_keyfile}" --image="${TIK_IMG_DIR}/${image_source_files}" --image-policy=root=unprotected "${image_target}" > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
+        if [ ${retval} -eq 0 ]; then
+            success=1
+        else
+            log "[dump_image_repart_image] systemd-repart attempt ${attempt_num} failed. Trying again..."
+            sleep 1
+            attempt_num=$(( attempt_num + 1 ))
+        fi
+    done
+    if [ ${success} = 1 ]; then
+        log "[dump_image_repart_image] systemd-repart succeeded after ${attempt_num} attempts"
+    else
+        error "systemd-repart failed"
+    fi
+}
+
+dump_image_repart_self() {
+    local image_target=$1
+    create_keyfile
+    prun-opt rm -rf /etc/fstab.repart
+    log "[dump_image_repart_self] self-deploying"
+    prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file="${tik_keyfile}" --generate-fstab=/etc/fstab.repart "${image_target}" > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
+}
+
+tik_cleanup_mounts() {
+    if [ -n "${TIK_MOUNTED_POINTS}" ] || [ "${TIK_MOUNTED_TARGET}" = "1" ]; then
+        log "[tik_cleanup_mounts] mounts detected after phase '${TIK_CURRENT_PHASE}', unmounting"
+        tik_target_unmount
+    fi
+}
+
+tik_rewrite_overlay_opts() {
+    local opts="$1"
+    local root="$2"
+
+    opts="$(echo "$opts" | sed -E "s#lowerdir=/#lowerdir=${root}/#g; s#upperdir=/#upperdir=${root}/#g; s#workdir=/#workdir=${root}/#g")"
+    opts="$(echo "$opts" | sed -E "s#lowerdir=${root}//#lowerdir=${root}/#g; s#upperdir=${root}//#upperdir=${root}/#g; s#workdir=${root}//#workdir=${root}/#g")"
+    opts="$(echo "$opts" | sed -E "s#lowerdir=(${root}/[^,]*):/#lowerdir=\1:${root}/#g")"
+
+    echo "$opts"
+}
+
+tik_is_opt_set() {
+    echo ",$1," | grep -q ",$2,"
+}
+
+tik_close_progress() {
+    if [ -n "${TIK_PROGRESS_PID}" ]; then
+        log "[tik_close_progress] stopping progress monitor pid=${TIK_PROGRESS_PID}"
+
+        if [ -n "${TIK_PIPE}" ] && [ -p "${TIK_PIPE}" ]; then
+            echo "100" > "${TIK_PIPE}" 2>/dev/null || true
+        fi
+
+        kill -TERM -- "-${TIK_PROGRESS_PID}" 2>/dev/null || true
+        wait "${TIK_PROGRESS_PID}" 2>/dev/null || true
+
+        kill -KILL -- "-${TIK_PROGRESS_PID}" 2>/dev/null || true
+
+        unset TIK_PROGRESS_PID
+    fi
+
+    if [ -n "${TIK_PIPE}" ] && [ -p "${TIK_PIPE}" ]; then
+        log "[tik_close_progress] removing progress pipe ${TIK_PIPE}"
+        rm -f "${TIK_PIPE}" 2>/dev/null || true
+    fi
+    unset TIK_PIPE
+}

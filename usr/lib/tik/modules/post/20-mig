@@ -4,7 +4,7 @@
 # SPDX-FileCopyrightText: Copyright 2025 Tobias Görgens
 
 writemigdesktop() {
-    prun-opt /usr/bin/tee $1/.config/autostart/aeon-mig-firstboot.desktop << "EOF"
+    prun-opt /usr/bin/tee "$1/.config/autostart/aeon-mig-firstboot.desktop" << "EOF"
 [Desktop Entry]
 Name=Aeon Migration FirstBoot Setup
 Comment=Sets up Aeon Correctly On FirstBoot after Migration
@@ -14,53 +14,61 @@ Type=Application
 Categories=Utility;System;
 Name[en_GB]=startup
 EOF
-    prun-opt /usr/bin/chmod 666 $1/.config/autostart/aeon-mig-firstboot.desktop
+    prun-opt /usr/bin/chmod 666 "$1/.config/autostart/aeon-mig-firstboot.desktop"
 }
 
 if [ "${migrate}" == 1 ]; then
-    probe_partitions $TIK_INSTALL_DEVICE "btrfs" "/usr/lib/os-release"
+    tik_target_mount "" "required"
 
-    [ -n "${probedpart}" ] || error "MIGRATION FAILED: New Installation NOT FOUND"
+    [ -n "${TIK_ROOT_MNT}" ] || error "MIGRATION FAILED: TIK_ROOT_MNT not set"
+    [ -n "${TIK_ROOT_DEV}" ] || error "MIGRATION FAILED: TIK_ROOT_DEV not set"
 
-    prun /usr/bin/mkdir ${mig_dir}/mnt
-    prun /usr/bin/mount -o compress=zstd:1 ${probedpart} ${mig_dir}/mnt
-    prun /usr/bin/systemd-repart --pretty 0 --root ${mig_dir}/mnt --dry-run=0 ${probedpart}
-    prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var ${probedpart} ${mig_dir}/mnt/var
+    prun /usr/bin/mkdir -p "${TIK_ROOT_MNT}/mnt"
 
-    mount_etc_for_root "${mig_dir}/mnt"
+    tik_unmount "${TIK_ROOT_MNT}/home"
+    tik_mount "${TIK_ROOT_DEV}" "mnt" "compress=zstd:1,subvol=/@"
 
-    prun /usr/bin/cat ${mig_dir}/passwd.out | prun tee -a ${mig_dir}/mnt/etc/passwd
-    prun /usr/bin/cat ${mig_dir}/group.out | prun tee -a ${mig_dir}/mnt/etc/group
-    prun /usr/bin/cat ${mig_dir}/shadow.out | prun tee -a ${mig_dir}/mnt/etc/shadow
-    prun /usr/bin/sed -i "/^wheel:/ s/$/$(head -n 1 ${mig_dir}/passwd.out | awk -F'[/:]' '{print $1}')/" ${mig_dir}/mnt/etc/group
-    prun /usr/bin/cp -a ${mig_dir}/subuid ${mig_dir}/mnt/etc/subuid
-    prun /usr/bin/cp -a ${mig_dir}/subgid ${mig_dir}/mnt/etc/subgid
+    prun /usr/bin/systemd-repart --pretty 0 --root "${TIK_ROOT_MNT}" --dry-run=0 "${TIK_ROOT_DEV}"
+
+    prun /usr/bin/cat "${mig_dir}/passwd.out" | prun /usr/bin/tee -a "${TIK_ROOT_MNT}/etc/passwd"
+    prun /usr/bin/cat "${mig_dir}/group.out"  | prun /usr/bin/tee -a "${TIK_ROOT_MNT}/etc/group"
+    prun /usr/bin/cat "${mig_dir}/shadow.out" | prun /usr/bin/tee -a "${TIK_ROOT_MNT}/etc/shadow"
+    prun /usr/bin/sed -i "/^wheel:/ s/$/$(head -n 1 "${mig_dir}/passwd.out" | awk -F'[/:]' '{print $1}')/" "${TIK_ROOT_MNT}/etc/group"
+    prun /usr/bin/cp -a "${mig_dir}/subuid" "${TIK_ROOT_MNT}/etc/subuid"
+    prun /usr/bin/cp -a "${mig_dir}/subgid" "${TIK_ROOT_MNT}/etc/subgid"
     # It's not guaranteed that the system will have existing network configs, localtime or AccountsService
-    prun-opt /usr/bin/cp -a ${mig_dir}/system-connections/* ${mig_dir}/mnt/etc/NetworkManager/system-connections
-    prun-opt /usr/bin/cp -a ${mig_dir}/localtime ${mig_dir}/mnt/etc/localtime
-    prun-opt /usr/bin/cp -a ${mig_dir}/users/* ${mig_dir}/mnt/var/lib/AccountsService/users
-    prun-opt /usr/bin/cp -a ${mig_dir}/icons/* ${mig_dir}/mnt/var/lib/AccountsService/icons
-    prun-opt /usr/bin/cp -a ${mig_dir}/bluetooth/* ${mig_dir}/mnt/var/lib/bluetooth
-    prun-opt /usr/bin/cp -a ${mig_dir}/fprint/* ${mig_dir}/mnt/var/lib/fprint
-    prun-opt /usr/bin/cp -a ${mig_dir}/openvpn/* ${mig_dir}/mnt/etc/openvpn
-    prun /usr/bin/umount ${mig_dir}/mnt/etc
-    prun /usr/bin/umount ${mig_dir}/mnt/var
-    prun /usr/bin/umount ${mig_dir}/mnt
-    prun /usr/bin/mount -o compress=zstd:1,subvol=/@ ${probedpart} ${mig_dir}/mnt
-    prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/home
-    (prun /usr/sbin/btrfs send ${mig_dir}/${snap_dir} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/mnt) 2>&1 | d --progress --title="Restoring /home" --pulsate --auto-close --no-cancel --width=400
-    prun /usr/bin/mv ${mig_dir}/mnt/${snap_dir} ${mig_dir}/mnt/home
-    prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/mnt/home ro false
-    for subsubvol in $(prun-opt /usr/sbin/btrfs subvolume list -o ${mig_dir}/${snap_dir} --sort=path | rev | cut -f1 -d' ' | rev | sed 's/^@//'); do
-        subsubvolname=$(basename $subsubvol)
-        subsubdirname=$(dirname $subsubvol | awk -F "${mig_dir}/${snap_dir}" '{print $2}')
-        (prun /usr/sbin/btrfs send ${subsubvol} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/mnt/home/${subsubdirname} ) 2>&1 | d --progress --title="Restoring containers" --pulsate --auto-close --no-cancel --width=400
-        prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/mnt/home/${subsubdirname}/${subsubvolname} ro false
-        prun-opt /usr/bin/sed -i 's/driver = "overlay"/driver = "btrfs"/g' ${mig_dir}/mnt/etc/containers/storage.conf
+    prun-opt /usr/bin/cp -a "${mig_dir}/system-connections/"* "${TIK_ROOT_MNT}/etc/NetworkManager/system-connections"
+    prun-opt /usr/bin/cp -a "${mig_dir}/localtime" "${TIK_ROOT_MNT}/etc/localtime"
+    prun-opt /usr/bin/cp -a "${mig_dir}/users/"* "${TIK_ROOT_MNT}/var/lib/AccountsService/users"
+    prun-opt /usr/bin/cp -a "${mig_dir}/icons/"* "${TIK_ROOT_MNT}/var/lib/AccountsService/icons"
+    prun-opt /usr/bin/cp -a "${mig_dir}/bluetooth/"* "${TIK_ROOT_MNT}/var/lib/bluetooth"
+    prun-opt /usr/bin/cp -a "${mig_dir}/fprint/"* "${TIK_ROOT_MNT}/var/lib/fprint"
+    prun-opt /usr/bin/cp -a "${mig_dir}/openvpn/"* "${TIK_ROOT_MNT}/etc/openvpn"
+
+    log "[mig] deleting existing /home subvolume under ${TIK_ROOT_MNT}/mnt"
+    prun /usr/sbin/btrfs subvolume delete "${TIK_ROOT_MNT}/mnt/home"
+
+    (prun /usr/sbin/btrfs send "${mig_dir}/${snap_dir}" | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive "${TIK_ROOT_MNT}/mnt") 2>&1 \
+        | d --progress --title="Restoring /home" --pulsate --auto-close --no-cancel --width=400
+
+    prun /usr/bin/mv "${TIK_ROOT_MNT}/mnt/${snap_dir}" "${TIK_ROOT_MNT}/mnt/home"
+    prun /usr/sbin/btrfs property set -f -ts "${TIK_ROOT_MNT}/mnt/home" ro false
+
+    for subsubvol in $(prun-opt /usr/sbin/btrfs subvolume list -o "${mig_dir}/${snap_dir}" --sort=path | rev | cut -f1 -d' ' | rev | sed 's/^@//'); do
+        subsubvolname="$(basename "$subsubvol")"
+        subsubdirname="$(dirname "$subsubvol" | awk -F "${mig_dir}/${snap_dir}" '{print $2}')"
+
+        (prun /usr/sbin/btrfs send "${subsubvol}" | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive "${TIK_ROOT_MNT}/mnt/home/${subsubdirname}") 2>&1 \
+            | d --progress --title="Restoring containers" --pulsate --auto-close --no-cancel --width=400
+
+        prun /usr/sbin/btrfs property set -f -ts "${TIK_ROOT_MNT}/mnt/home/${subsubdirname}/${subsubvolname}" ro false
+        prun-opt /usr/bin/sed -i 's/driver = "overlay"/driver = "btrfs"/g' "${TIK_ROOT_MNT}/mnt/etc/containers/storage.conf"
     done
-    for userhome in ${mig_dir}/mnt/home/*/; do
-        writemigdesktop $userhome
+    tik_mount "${TIK_ROOT_DEV}" "home" "compress=zstd:1,subvol=/@/home"
+
+    for userhome in "${TIK_ROOT_MNT}/mnt/home"/*/; do
+        writemigdesktop "${userhome}"
     done
-    prun /usr/bin/umount ${mig_dir}/mnt
-    prun /usr/bin/rmdir ${mig_dir}/mnt
+
+    tik_unmount "${TIK_ROOT_MNT}/mnt"
 fi

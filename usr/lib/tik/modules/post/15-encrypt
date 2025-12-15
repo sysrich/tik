@@ -51,6 +51,8 @@ display_recoveryKey() {
 }
 
 configure_encryption() {
+    tik_target_mount "" "required"
+
     tik_progress_step "Configuring encryption and boot" 20
 
     log "[configure_encryption] configuring cmdline, crypttab, PCR policy, fstab and populating ${TIK_ESP_PART}"

@@ -31,7 +31,7 @@ checkLaptop() {
         fi
     done
     if [ "$givePowerRecommendation" = true ]; then
-        log "AC Power disconnected and Battery is not charging"
+        log "[welcome] AC Power disconnected and Battery is not charging"
         displayACWarningMsg
     fi
 }
