@@ -214,48 +214,83 @@ tik_target_mount() {
 
     [ "${TIK_MOUNTED_TARGET}" = "1" ] && return 0
 
-    tik_target_mount_prepare
+    tik_mount_prepare
 
-    # open root device
-    tik_target_open "${mapper_override}" "${mode}"
-    case "$?" in
-        0) ;;
-        1)
-            if [ "${mode}" = "required" ]; then
-                error "No encrypted system found where one was required"
+    # open encrypted device(s)
+    local crypt_parts=""
+    crypt_parts="$(
+        lsblk "${TIK_INSTALL_DEVICE}" -p -n -r -o ID-LINK,FSTYPE | tr -s ' ' ";" | grep ";crypto_LUKS" | cut -d\; -f1
+    )"
+
+    if [ -n "${crypt_parts}" ]; then
+        local crypt_part
+        for crypt_part in ${crypt_parts}; do
+            tik_crypt_open "${mapper_override}" "${mode}" "${crypt_part}"
+            case "$?" in
+                0) ;;
+                *)
+                    return "$?"
+                    ;;
+            esac
+
+            # If we opened something, check whether it looks like the root filesystem
+            if [ -n "${TIK_ROOT_DEV}" ]; then
+                if tik_is_root_partition "${TIK_ROOT_DEV}"; then
+                    break
+                fi
+
+                # Not root -> close and try the next encrypted partition
+                if [ -n "${TIK_OPENED_MAPPER}" ]; then
+                    prun-opt /usr/sbin/cryptsetup luksClose "${TIK_OPENED_MAPPER}"
+                fi
+                TIK_CRYPT_PART=""
+                export TIK_CRYPT_PART
+                TIK_ROOT_DEV=""
+                export TIK_ROOT_DEV
+                TIK_OPENED_MAPPER=""
+                export TIK_OPENED_MAPPER
             fi
-            return 1
-            ;;
-        2)
-            return 2
-            ;;
-    esac
+        done
+    else
+        # No encrypted partitions found -> search all partitions for a root filesystem
+        local part
+        local parts=""
+        parts="$(
+            lsblk "${TIK_INSTALL_DEVICE}" -p -n -r -o NAME,TYPE | awk '$2=="part"{print $1}'
+        )"
+
+        for part in ${parts}; do
+            if tik_is_root_partition "${part}"; then
+                TIK_ROOT_DEV="${part}"
+                export TIK_ROOT_DEV
+                break
+            fi
+        done
+    fi
 
     if [ -z "${TIK_ROOT_DEV}" ]; then
-        if ! TIK_ROOT_DEV="$(tik_target_find_root_partition)"; then
-            if [ "${mode}" = "required" ]; then
-                error "No existing system found"
-            fi
-            return 1
+        if [ "${mode}" = "required" ]; then
+            error "No existing system found"
         fi
-        export TIK_ROOT_DEV
+        return 1
     fi
+    export TIK_ROOT_DEV
 
     log "[tik_target_mount] root device is ${TIK_ROOT_DEV}"
 
     # mount root
-    tik_target_mount_root "${TIK_ROOT_DEV}" "${TIK_ROOT_MNT}"
+    tik_mount_root "${TIK_ROOT_DEV}" "${TIK_ROOT_MNT}"
 
     # Assemble fstab in a writable location
     local assembled
-    assembled="$(tik_target_fstab_assemble "${TIK_ROOT_MNT}")"
+    assembled="$(tik_fstab_assemble "${TIK_ROOT_MNT}")"
     TIK_TARGET_FSTAB="${assembled}"
     export TIK_TARGET_FSTAB
     TIK_ASSEMBLED_FSTAB="${assembled}"
     export TIK_ASSEMBLED_FSTAB
 
     # mount everything described by assembled fstab
-    tik_target_mount_from_fstab "${TIK_ROOT_MNT}"
+    tik_mount_from_fstab "${TIK_ROOT_MNT}"
 
     # Probe ESP
     log "[tik_target_mount] probing for ESP partition on ${TIK_INSTALL_DEVICE}"
@@ -271,7 +306,7 @@ tik_target_mount() {
     fi
 
     # bind pseudo fs for chroot usage
-    tik_target_mount_pseudofs "${TIK_ROOT_MNT}"
+    tik_mount_pseudofs "${TIK_ROOT_MNT}"
 
     log "[tik_target_mount] Target system mounted"
 
@@ -279,13 +314,13 @@ tik_target_mount() {
     export TIK_MOUNTED_TARGET
 }
 
-tik_target_write_fstab() {
-    [ "${TIK_MOUNTED_TARGET}" = "1" ] || error "tik_target_write_fstab: target system not mounted"
+tik_write_fstab() {
+    [ "${TIK_MOUNTED_TARGET}" = "1" ] || error "tik_write_fstab: target system not mounted"
 
     # Install assembled fstab into the target if possible
     if [ -n "${TIK_ASSEMBLED_FSTAB}" ] && [ -f "${TIK_ASSEMBLED_FSTAB}" ]; then
-        tik_target_fstab_install "${TIK_ROOT_MNT}" "${TIK_ASSEMBLED_FSTAB}" || true
+        tik_fstab_install "${TIK_ROOT_MNT}" "${TIK_ASSEMBLED_FSTAB}" || true
     else
-        error "tik_target_write_fstab: no assembled fstab available"
+        error "tik_write_fstab: no assembled fstab available"
     fi
 }

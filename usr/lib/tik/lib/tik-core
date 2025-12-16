@@ -11,7 +11,7 @@ tik_detect_identity() {
     # 0. Config provided => keep it
     # 1. Selfdeploy (no images found) => read /etc/os-release
     # 2. One image => try read os-release from image; else name fallback
-    # 3. Multiple images => if all match => use that; else fallback to UNKNOWN now
+    # 3. Multiple images => if all match => use that; else fallback to TIK now
 
     # If config already provided identity, prefer it
     if [ -n "${TIK_OS_NAME}" ]; then
@@ -258,9 +258,9 @@ get_img() {
         fi
     fi
 
-    # If identity was UNKNOWN due to multi-image mismatch, finalize it now from the selected image.
+    # If identity was TIK due to multi-image mismatch, finalize it now from the selected image.
     if [ "${TIK_INSTALL_IMAGE}" != "TIK_SELFDEPLOY" ]; then
-        if [ "${TIK_OS_NAME}" = "UNKNOWN SYSTEM" ] || [ -z "${TIK_CRYPT_MAPPER}" ]; then
+        if [ "${TIK_OS_NAME}" = "TIK" ] || [ -z "${TIK_CRYPT_MAPPER}" ]; then
             tik_set_identity_for_image "${TIK_INSTALL_IMAGE}"
         fi
     fi
@@ -336,35 +336,10 @@ tik_init_phase_modules() {
         *)      TIK_PROGRESS_TITLE="Installation"            ;;
     esac
 
+    export TIK_CURRENT_PHASE
     export TIK_PROGRESS_TITLE
 
     log "[tik_init_phase_modules] phase=${phase} total_modules=${TIK_TOTAL_MODULES}"
-}
-
-tik_target_unmount() {
-    [ "${TIK_MOUNTED_TARGET}" = "1" ] || return 0
-
-    log "[tik_target_unmount] Unmounting target system"
-
-    # Unmount everything mounted under the target mount root
-    tik_unmount "${TIK_ROOT_MNT}"
-
-    # As a last resort, unmount the root mount lazily if still busy
-    prun-opt /usr/bin/umount -l "${TIK_ROOT_MNT}" || true
-
-    # Close luks mapping
-    if [ -n "${TIK_CRYPT_PART}" ]; then
-        local mapper_name="${TIK_OPENED_MAPPER:-${TIK_CRYPT_MAPPER:-cr_root}}"
-        log "[tik_target_unmount] closing encrypted root for ${TIK_CRYPT_PART} (mapper=${mapper_name})"
-        prun-opt /usr/sbin/cryptsetup luksClose "${mapper_name}"
-    fi
-
-    TIK_MOUNTED_POINTS=""
-    TIK_MOUNTED_TARGET=0
-    export TIK_MOUNTED_TARGET
-
-    TIK_OPENED_MAPPER=""
-    export TIK_OPENED_MAPPER
 }
 
 load_modules() {
@@ -395,4 +370,25 @@ load_modules() {
         done
     fi
     tik_module="tik"
+}
+
+wipe_keyfile() {
+    log "[wipe_keyfile] Deleting keyfile ${tik_keyfile}"
+
+    local crypt_part="${TIK_CRYPT_PART}"
+
+    if [ -z "${crypt_part}" ]; then
+        probe_partitions "${TIK_INSTALL_DEVICE}" "crypto_LUKS"
+        crypt_part="${probedpart}"
+    fi
+
+    if [ -n "${crypt_part}" ] && [ -n "${tik_keyfile}" ] && [ -f "${tik_keyfile}" ]; then
+        prun /usr/bin/systemd-cryptenroll --unlock-key-file="${tik_keyfile}" --wipe-slot=0 "${crypt_part}"
+    else
+        log "[wipe_keyfile] no LUKS partition or keyfile found, skipping slot wipe"
+    fi
+
+    prun-opt /usr/bin/rm "${tik_keyfile}"
+    prun-opt keyctl revoke "${tik_keyid}"
+    prun-opt keyctl reap
 }

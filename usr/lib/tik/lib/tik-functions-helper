@@ -18,7 +18,7 @@ tik_prompt_passphrase() {
     echo -n "${passphrase}"
 }
 
-tik_target_mount_prepare() {
+tik_mount_prepare() {
     TIK_ROOT_MNT="${TIK_ROOT_MNT:=/var/lib/tik/root}"
     export TIK_ROOT_MNT
     prun /usr/bin/mkdir -p "${TIK_ROOT_MNT}"
@@ -39,20 +39,19 @@ tik_target_mount_prepare() {
     export TIK_OPENED_MAPPER
 }
 
-tik_target_find_root_partition() {
+tik_is_root_partition() {
+    local dev="$1"
     local fs
+
+    [ -n "${dev}" ] || return 1
+
     for fs in btrfs ext4 xfs f2fs; do
-        probe_partitions "${TIK_INSTALL_DEVICE}" "${fs}" "/etc/fstab"
+        probe_partitions "${dev}" "${fs}" "/etc/fstab"
         if [ -n "${probedpart}" ]; then
             echo "${probedpart}"
             return 0
         fi
-        probe_partitions "${TIK_INSTALL_DEVICE}" "${fs}" "/etc/os-release"
-        if [ -n "${probedpart}" ]; then
-            echo "${probedpart}"
-            return 0
-        fi
-        probe_partitions "${TIK_INSTALL_DEVICE}" "${fs}" "/usr/lib/os-release"
+        probe_partitions "${dev}" "${fs}" "/etc/os-release"
         if [ -n "${probedpart}" ]; then
             echo "${probedpart}"
             return 0
@@ -61,31 +60,25 @@ tik_target_find_root_partition() {
     return 1
 }
 
-tik_target_open() {
+tik_crypt_open() {
     # $1 = mapper override
     # $2 = mode: "required" | "optional"
     local mapper_override="$1"
     local mode="${2:-required}"
+    local crypt_part="$3"
 
     TIK_CRYPT_PART=""
     TIK_ROOT_DEV=""
 
-    local encrypted_partition=""
-    encrypted_partition="$(
-        lsblk "${TIK_INSTALL_DEVICE}" -p -n -r -o ID-LINK,FSTYPE | tr -s ' ' ";" | grep ";crypto_LUKS" | cut -d\; -f1 | head -n1
-    )"
+    [ -n "${crypt_part}" ] || return 0
 
-    if [ -z "${encrypted_partition}" ]; then
-        return 1
-    fi
-
-    local crypt_byid="/dev/disk/by-id/${encrypted_partition}"
+    local crypt_byid="/dev/disk/by-id/${crypt_part}"
     local crypt_real=""
 
     if [ -e "${crypt_byid}" ]; then
         crypt_real="$(/usr/bin/readlink -f "${crypt_byid}")"
     else
-        crypt_real="$(/usr/bin/readlink -f "/dev/disk/by-id/${encrypted_partition}")"
+        crypt_real="$(/usr/bin/readlink -f "/dev/disk/by-id/${crypt_part}")"
     fi
 
     [ -n "${crypt_real}" ] || crypt_real="${crypt_byid}"
@@ -95,14 +88,27 @@ tik_target_open() {
 
     local mapper_name="${mapper_override:-${TIK_CRYPT_MAPPER:-cr_root}}"
 
-    log "[tik_target_open] encrypted partition detected: ${TIK_CRYPT_PART} (mapper=${mapper_name})"
+    log "[tik_crypt_open] encrypted partition detected: ${TIK_CRYPT_PART} (mapper=${mapper_name})"
 
     if [ -e "/dev/mapper/${mapper_name}" ]; then
-        TIK_ROOT_DEV="/dev/mapper/${mapper_name}"
-        export TIK_ROOT_DEV
-        TIK_OPENED_MAPPER="${mapper_name}"
-        export TIK_OPENED_MAPPER
-        return 0
+        # Mapper already exists. Only reuse it if it maps to the partition we are trying to open.
+        local mapped_dev=""
+        mapped_dev="$(/usr/sbin/cryptsetup status "${mapper_name}" 2>/dev/null | /usr/bin/awk -F': *' '$1=="device"{print $2; exit}')"
+
+        if [ -n "${mapped_dev}" ]; then
+            mapped_dev="$(/usr/bin/readlink -f "${mapped_dev}")"
+        fi
+
+        if [ -n "${mapped_dev}" ] && [ "${mapped_dev}" = "${TIK_CRYPT_PART}" ]; then
+            log "[tik_crypt_open] mapper ${mapper_name} already open for ${mapped_dev}, reusing"
+            TIK_ROOT_DEV="/dev/mapper/${mapper_name}"
+            export TIK_ROOT_DEV
+            TIK_OPENED_MAPPER="${mapper_name}"
+            export TIK_OPENED_MAPPER
+            return 0
+        fi
+
+        error "Mapper <tt>${mapper_name}</tt> is already open for <tt>${mapped_dev:-unknown}</tt>, cannot open <tt>${TIK_CRYPT_PART}</tt>."
     fi
 
     if [ -n "${tik_keyfile}" ] && [ -f "${tik_keyfile}" ]; then
@@ -122,12 +128,12 @@ tik_target_open() {
             cancel_label="Skip"
         fi
 
-        pw="$(tik_prompt_passphrase "Encrypted partition (${encrypted_partition}) detected" "${cancel_label}")"
+        pw="$(tik_prompt_passphrase "Encrypted partition (${crypt_part}) detected" "${cancel_label}")"
 
         if [ -z "${pw}" ]; then
             if [ "${mode}" = "optional" ]; then
-                log "[tik_target_open] user skipped unlocking"
-                return 2
+                log "[tik_crypt_open] user skipped unlocking"
+                return 0
             fi
             error "Encrypted system detected but no passphrase provided"
         fi
@@ -141,7 +147,7 @@ tik_target_open() {
             return 0
         fi
 
-        d --warning --no-wrap --title="Incorrect passphrase" --text="Failed to unlock encrypted partition ${encrypted_partition}."
+        d --warning --no-wrap --title="Incorrect passphrase" --text="Failed to unlock encrypted partition ${crypt_part}."
     done
 }
 
@@ -154,38 +160,65 @@ tik_mountopts_filter() {
         return 0
     fi
 
-    /usr/bin/awk -v opts="${opts}" -v ignore="${ignore_list}" '
-        BEGIN {
-            n=split(ignore, ig, /,/)
-            for (i=1;i<=n;i++) {
-                gsub(/^[[:space:]]+|[[:space:]]+$/, "", ig[i])
-                if (ig[i] != "") drop[ig[i]]=1
-            }
+    # Build ignore tables from ignore_list
+    local -A drop_exact=()
+    local -A drop_key=()
+    local ig
 
-            m=split(opts, a, /,/)
-            out=""
-            for (j=1;j<=m;j++) {
-                o=a[j]
-                gsub(/^[[:space:]]+|[[:space:]]+$/, "", o)
-                if (o=="") continue
+    IFS=',' read -r -a _ignore_arr <<< "${ignore_list}"
+    for ig in "${_ignore_arr[@]}"; do
+        ig="${ig#"${ig%%[![:space:]]*}"}"
+        ig="${ig%"${ig##*[![:space:]]}"}"
+        [ -n "${ig}" ] || continue
 
-                # exact match (e.g. ro)
-                if (drop[o]) continue
+        drop_exact["${ig}"]=1
 
-                # key=value match (e.g. ro=vfs) where ignore has 'ro' or 'ro=' or 'ro=vfs'
-                split(o, kv, /=/)
-                k=kv[1]
-                if (drop[k]) continue
-                if (drop[k"="]) continue
-                if (drop[o]) continue
+        # If ignore entry is "key=" drop any key=...
+        if [[ "${ig}" == *"=" ]]; then
+            drop_key["${ig%=}"]=1
+        # If ignore entry is "key=value" also mark key for dropping
+        elif [[ "${ig}" == *"="* ]]; then
+            drop_key["${ig%%=*}"]=1
+        else
+            drop_key["${ig}"]=1
+        fi
+    done
 
-                if (out=="") out=o
-                else out=out","o
-            }
-            if (out=="") out="-"
-            print out
-        }
-    '
+    local out=()
+    local o k
+    IFS=',' read -r -a _opts_arr <<< "${opts}"
+    for o in "${_opts_arr[@]}"; do
+        o="${o#"${o%%[![:space:]]*}"}"
+        o="${o%"${o##*[![:space:]]}"}"
+        [ -n "${o}" ] || continue
+
+        # Exact ignore match
+        if [ -n "${drop_exact[${o}]}" ]; then
+            continue
+        fi
+
+        # key=value case
+        if [[ "${o}" == *"="* ]]; then
+            k="${o%%=*}"
+            if [ -n "${drop_key[${k}]}" ] || [ -n "${drop_exact[${k}=]}" ]; then
+                continue
+            fi
+        else
+            # plain key case
+            if [ -n "${drop_key[${o}]}" ]; then
+                continue
+            fi
+        fi
+
+        out+=("${o}")
+    done
+
+    if [ "${#out[@]}" -eq 0 ]; then
+        echo "-"
+    else
+        local joined
+        (IFS=','; joined="${out[*]}"; echo "${joined}")
+    fi
 }
 
 tik_mountopts_ignore_list() {
@@ -199,7 +232,61 @@ tik_mountopts_apply_filter() {
     tik_mountopts_filter "${opts}" "${ignore_opts}"
 }
 
-tik_target_mount_root() {
+tik_fstab_get_mount_opts() {
+    local fstab="$1"
+    local mountpoint="$2"
+    local line spec mp fstype opts rest
+
+    [ -f "${fstab}" ] || return 1
+
+    while IFS= read -r line; do
+        # strip leading whitespace
+        line="${line#"${line%%[![:space:]]*}"}"
+        [ -n "${line}" ] || continue
+        [[ "${line}" = \#* ]] && continue
+
+        # split into fields
+        read -r spec mp fstype opts rest <<< "${line}"
+        [ -n "${spec}" ] || continue
+        [ -n "${mp}" ] || continue
+
+        if [ "${mp}" = "${mountpoint}" ]; then
+            echo "${opts}"
+            return 0
+        fi
+    done < "${fstab}"
+
+    return 1
+}
+
+tik_fstab_read_entry() {
+    # Reads a single fstab-like line and outputs 4 fields via globals:
+    #   TIK_FSTAB_SPEC, TIK_FSTAB_MP, TIK_FSTAB_FSTYPE, TIK_FSTAB_OPTS
+    # Returns:
+    #   0 = parsed entry
+    #   1 = skip (blank/comment/invalid)
+    local line="$1"
+    local rest
+
+    TIK_FSTAB_SPEC=""
+    TIK_FSTAB_MP=""
+    TIK_FSTAB_FSTYPE=""
+    TIK_FSTAB_OPTS=""
+
+    line="${line#"${line%%[![:space:]]*}"}"
+    [ -n "${line}" ] || return 1
+    [[ "${line}" = \#* ]] && return 1
+
+    read -r TIK_FSTAB_SPEC TIK_FSTAB_MP TIK_FSTAB_FSTYPE TIK_FSTAB_OPTS rest <<< "${line}"
+
+    [ -n "${TIK_FSTAB_SPEC}" ] || return 1
+    [ -n "${TIK_FSTAB_MP}" ] || return 1
+    [ -n "${TIK_FSTAB_FSTYPE}" ] || return 1
+
+    return 0
+}
+
+tik_mount_root() {
     local rootdev=$1
     local mnt=$2
 
@@ -207,19 +294,15 @@ tik_target_mount_root() {
     local tmp_mnt
     local root_opts
     tmp_mnt="$(prun /usr/bin/mktemp -d /tmp/tik-rootprobe.XXXXXXXXXX)"
-    log "[tik_target_mount_root] probing mount options for / by temporarily mounting ${rootdev} on ${tmp_mnt}"
+    log "[tik_mount_root] probing mount options for / by temporarily mounting ${rootdev} on ${tmp_mnt}"
 
     prun /usr/bin/mount -o ro "${rootdev}" "${tmp_mnt}"
 
     if [ -f "${tmp_mnt}/etc/fstab" ]; then
-        root_opts="$(prun /usr/bin/awk '
-            $0 ~ /^[[:space:]]*#/ { next }
-            NF < 4 { next }
-            $2 == "/" { print $4; exit }
-        ' "${tmp_mnt}/etc/fstab")"
-        log "[tik_target_mount_root] probed root mount options: '${root_opts}'"
+        root_opts="$(tik_fstab_get_mount_opts "${tmp_mnt}/etc/fstab" "/")"
+        log "[tik_mount_root] probed root mount options: '${root_opts}'"
     else
-        log "[tik_target_mount_root] no ${tmp_mnt}/etc/fstab found while probing, falling back to default mount options"
+        log "[tik_mount_root] no ${tmp_mnt}/etc/fstab found while probing, falling back to default mount options"
         root_opts=""
     fi
 
@@ -228,7 +311,7 @@ tik_target_mount_root() {
 
     if [ -n "${root_opts}" ] && [ "${root_opts}" != "-" ]; then
         root_opts="$(tik_mountopts_apply_filter "${root_opts}")"
-        log "[tik_target_mount_root] filtered root mount options: '${root_opts}'"
+        log "[tik_mount_root] filtered root mount options: '${root_opts}'"
     fi
 
     if [ -n "${root_opts}" ] && [ "${root_opts}" != "-" ]; then
@@ -263,6 +346,21 @@ tik_is_safe_mount() {
     return 0
 }
 
+tik_rewrite_overlay_opts() {
+    local opts="$1"
+    local root="$2"
+
+    opts="$(echo "$opts" | sed -E "s#lowerdir=/#lowerdir=${root}/#g; s#upperdir=/#upperdir=${root}/#g; s#workdir=/#workdir=${root}/#g")"
+    opts="$(echo "$opts" | sed -E "s#lowerdir=${root}//#lowerdir=${root}/#g; s#upperdir=${root}//#upperdir=${root}/#g; s#workdir=${root}//#workdir=${root}/#g")"
+    opts="$(echo "$opts" | sed -E "s#lowerdir=(${root}/[^,]*):/#lowerdir=\1:${root}/#g")"
+
+    echo "$opts"
+}
+
+tik_is_opt_set() {
+    echo ",$1," | grep -q ",$2,"
+}
+
 tik_override_mountpoint() {
     local fstab=$1
     local mp=$2
@@ -271,28 +369,55 @@ tik_override_mountpoint() {
     local tmp
     tmp="$(prun /usr/bin/mktemp /tmp/tik-fstab.XXXXXXXXXX)"
 
-    prun /usr/bin/awk -v want="${mp}" -v rep="${newline}" '
-        BEGIN { replaced=0 }
-        {
-            if ($0 ~ /^[[:space:]]*#/ || NF < 2) { print; next }
-            if (!replaced && $2 == want) { print rep; replaced=1; next }
-            print
-        }
-        END { if (!replaced) print rep }
-    ' "${fstab}" | prun /usr/bin/tee "${tmp}" >/dev/null
+    local replaced=0
+    local line spec cur_mp rest
+
+    {
+        while IFS= read -r line || [ -n "${line}" ]; do
+            # Keep comments as-is
+            if [[ "${line}" =~ ^[[:space:]]*# ]]; then
+                printf '%s\n' "${line}"
+                continue
+            fi
+
+            # If we can't read at least 2 fields, keep as-is
+            spec=""
+            cur_mp=""
+            rest=""
+            read -r spec cur_mp rest <<< "${line}"
+            if [ -z "${spec}" ] || [ -z "${cur_mp}" ]; then
+                printf '%s\n' "${line}"
+                continue
+            fi
+
+            # Replace first matching mountpoint
+            if [ "${replaced}" -eq 0 ] && [ "${cur_mp}" = "${mp}" ]; then
+                printf '%s\n' "${newline}"
+                replaced=1
+                continue
+            fi
+
+            printf '%s\n' "${line}"
+        done < <(prun /usr/bin/cat "${fstab}")
+
+        # If not replaced, append new entry
+        if [ "${replaced}" -eq 0 ]; then
+            printf '%s\n' "${newline}"
+        fi
+    } | prun /usr/bin/tee "${tmp}" >/dev/null
 
     prun /usr/bin/cp -a "${tmp}" "${fstab}"
     prun /usr/bin/rm -f "${tmp}"
 }
 
-tik_target_can_write_etc() {
+tik_can_write_etc() {
     local mnt=$1
     local probe="${mnt}/etc/.tik-write-probe.$$"
     prun-opt /usr/bin/sh -c "touch '${probe}' && rm -f '${probe}'"
     [ "${retval}" = "0" ]
 }
 
-tik_target_fstab_assemble() {
+tik_fstab_assemble() {
     local mnt=$1
 
     local fstab="${mnt}/etc/fstab"
@@ -306,13 +431,13 @@ tik_target_fstab_assemble() {
 
     # Prefer systemd-repart generated fstab if present, otherwise use existing fstab.
     if [ -f "${fstab_repart}" ]; then
-        log "[tik_target_fstab_assemble] using ${fstab_repart} as base fstab"
+        log "[tik_fstab_assemble] using ${fstab_repart} as base fstab"
         prun /usr/bin/cp -a "${fstab_repart}" "${assembled}"
     elif [ -f "${fstab}" ]; then
-        log "[tik_target_fstab_assemble] using ${fstab} as base fstab"
+        log "[tik_fstab_assemble] using ${fstab} as base fstab"
         prun /usr/bin/cp -a "${fstab}" "${assembled}"
     else
-        log "[tik_target_fstab_assemble] no base fstab found, leaving assembled fstab empty at ${assembled}"
+        log "[tik_fstab_assemble] no base fstab found, leaving assembled fstab empty at ${assembled}"
         prun /usr/bin/tee "${assembled}" >/dev/null <<EOF
 # tik: no base fstab found during installation
 EOF
@@ -320,7 +445,7 @@ EOF
 
     # Apply /etc/fstab.tik if present
     if [ -f "${fstab_tik}" ]; then
-        log "[tik_target_fstab_assemble] found ${fstab_tik}, applying overrides into ${assembled}"
+        log "[tik_fstab_assemble] found ${fstab_tik}, applying overrides into ${assembled}"
 
         while IFS= read -r line; do
             line="${line#"${line%%[![:space:]]*}"}"
@@ -337,31 +462,31 @@ EOF
             [ -z "${fstype}" ] && continue
 
             if ! tik_is_safe_mount "${spec}" "${mp}" "${fstype}"; then
-                log "[tik_target_fstab_assemble] skipping unsafe fstab.tik entry: ${line}"
+                log "[tik_fstab_assemble] skipping unsafe fstab.tik entry: ${line}"
                 continue
             fi
 
             tik_override_mountpoint "${assembled}" "${mp}" "${line}"
-            log "[tik_target_fstab_assemble] applied override/append for ${mp}"
+            log "[tik_fstab_assemble] applied override/append for ${mp}"
         done < <(prun /usr/bin/cat "${fstab_tik}")
     else
-        log "[tik_target_fstab_assemble] no ${fstab_tik} found, not applying tik overrides"
+        log "[tik_fstab_assemble] no ${fstab_tik} found, not applying tik overrides"
     fi
 
     echo "${assembled}"
 }
 
-tik_target_fstab_install() {
+tik_fstab_install() {
     local mnt=$1
     local assembled=$2
     local fstab="${mnt}/etc/fstab"
     local backup="${mnt}/etc/fstab.tik.orig"
 
-    if tik_target_can_write_etc "${mnt}"; then
-        log "[tik_target_fstab_install] /etc is writable, installing assembled fstab to ${fstab}"
+    if tik_can_write_etc "${mnt}"; then
+        log "[tik_fstab_install] /etc is writable, installing assembled fstab to ${fstab}"
         if [ -f "${fstab}" ] && [ ! -f "${backup}" ]; then
             prun /usr/bin/cp -a "${fstab}" "${backup}"
-            log "[tik_target_fstab_install] backed up original fstab to ${backup}"
+            log "[tik_fstab_install] backed up original fstab to ${backup}"
         fi
         prun /usr/bin/cp -a "${assembled}" "${fstab}"
         prun /usr/bin/chmod 0644 "${fstab}"
@@ -370,13 +495,13 @@ tik_target_fstab_install() {
         return 0
     fi
 
-    log "[tik_target_fstab_install] /etc is not writable yet"
+    log "[tik_fstab_install] /etc is not writable yet"
     TIK_TARGET_FSTAB="${assembled}"
     export TIK_TARGET_FSTAB
     return 1
 }
 
-tik_target_mount_from_fstab() {
+tik_mount_from_fstab() {
     local mnt=$1
     local fstab
 
@@ -387,26 +512,21 @@ tik_target_mount_from_fstab() {
     fi
 
     if [ ! -f "${fstab}" ]; then
-        log "[tik_target_mount_from_fstab] no fstab at ${fstab}, skipping fstab mounts"
+        log "[tik_mount_from_fstab] no fstab at ${fstab}, skipping fstab mounts"
         return 0
     fi
 
-    log "[tik_target_mount_from_fstab] reading ${fstab}"
+    log "[tik_mount_from_fstab] reading ${fstab}"
 
     while IFS= read -r line; do
-        line="${line#"${line%%[![:space:]]*}"}"
-        [ -z "${line}" ] && continue
-        [[ "${line}" = \#* ]] && continue
+        if ! tik_fstab_read_entry "${line}"; then
+            continue
+        fi
 
-        set -- ${line}
-        local spec="$1"
-        local mp="$2"
-        local fstype="$3"
-        local opts="$4"
-
-        [ -z "${spec}" ] && continue
-        [ -z "${mp}" ] && continue
-        [ -z "${fstype}" ] && continue
+        local spec="${TIK_FSTAB_SPEC}"
+        local mp="${TIK_FSTAB_MP}"
+        local fstype="${TIK_FSTAB_FSTYPE}"
+        local opts="${TIK_FSTAB_OPTS}"
 
         [ "${mp}" = "/" ] && continue
         [ "${fstype}" = "swap" ] && continue
@@ -443,10 +563,10 @@ tik_target_mount_from_fstab() {
     done < <(prun /usr/bin/cat "${fstab}")
 }
 
-tik_target_mount_pseudofs() {
+tik_mount_pseudofs() {
     local mnt=$1
 
-    log "[tik_target_mount_pseudofs] Binding pseudo filesystems"
+    log "[tik_mount_pseudofs] Binding pseudo filesystems"
 
     tik_mount "/proc" "${mnt}/proc" "" "proc"
 
