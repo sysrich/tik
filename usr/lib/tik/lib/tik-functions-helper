@@ -70,12 +70,27 @@ tik_target_open() {
     TIK_CRYPT_PART=""
     TIK_ROOT_DEV=""
 
-    probe_partitions "${TIK_INSTALL_DEVICE}" "crypto_LUKS"
-    if [ -z "${probedpart}" ]; then
+    local encrypted_partition=""
+    encrypted_partition="$(
+        lsblk "${TIK_INSTALL_DEVICE}" -p -n -r -o ID-LINK,FSTYPE | tr -s ' ' ";" | grep ";crypto_LUKS" | cut -d\; -f1 | head -n1
+    )"
+
+    if [ -z "${encrypted_partition}" ]; then
         return 1
     fi
 
-    TIK_CRYPT_PART="${probedpart}"
+    local crypt_byid="/dev/disk/by-id/${encrypted_partition}"
+    local crypt_real=""
+
+    if [ -e "${crypt_byid}" ]; then
+        crypt_real="$(/usr/bin/readlink -f "${crypt_byid}")"
+    else
+        crypt_real="$(/usr/bin/readlink -f "/dev/disk/by-id/${encrypted_partition}")"
+    fi
+
+    [ -n "${crypt_real}" ] || crypt_real="${crypt_byid}"
+
+    TIK_CRYPT_PART="${crypt_real}"
     export TIK_CRYPT_PART
 
     local mapper_name="${mapper_override:-${TIK_CRYPT_MAPPER:-cr_root}}"
@@ -107,7 +122,7 @@ tik_target_open() {
             cancel_label="Skip"
         fi
 
-        pw="$(tik_prompt_passphrase "Encrypted partition (${TIK_CRYPT_PART}) detected" "${cancel_label}")"
+        pw="$(tik_prompt_passphrase "Encrypted partition (${encrypted_partition}) detected" "${cancel_label}")"
 
         if [ -z "${pw}" ]; then
             if [ "${mode}" = "optional" ]; then
@@ -117,7 +132,7 @@ tik_target_open() {
             error "Encrypted system detected but no passphrase provided"
         fi
 
-        printf "%s" "${pw}" | prun /usr/sbin/cryptsetup luksOpen "${TIK_CRYPT_PART}" "${mapper_name}"
+        echo -n "${pw}" | prun /usr/sbin/cryptsetup luksOpen "${crypt_byid}" "${mapper_name}"
         if [ "${retval}" = "0" ]; then
             TIK_ROOT_DEV="/dev/mapper/${mapper_name}"
             export TIK_ROOT_DEV
@@ -126,7 +141,7 @@ tik_target_open() {
             return 0
         fi
 
-        d --warning --no-wrap --title="Incorrect passphrase" --text="Failed to unlock encrypted partition ${TIK_CRYPT_PART}."
+        d --warning --no-wrap --title="Incorrect passphrase" --text="Failed to unlock encrypted partition ${encrypted_partition}."
     done
 }
 
