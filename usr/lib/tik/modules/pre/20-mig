@@ -62,10 +62,27 @@ if [ -z "${skipbackup}" ]; then
     # Determine whether migration is feasible by checking /home size
     if [ -d "${TIK_ROOT_MNT}/home" ]; then
         # If /home is btrfs, run quota rescan and check qgroup usage.
-        prun-opt /usr/sbin/btrfs quota rescan -w "${TIK_ROOT_MNT}/home" | d --progress --title="Detected existing /home.." --pulsate --auto-close --no-cancel --width=400
+        # Quotas may not be enabled, so qgroup show can fail. Fall back to du in that case.
+        prun-opt /usr/sbin/btrfs quota show "${TIK_ROOT_MNT}/home" >/dev/null 2>&1
         if [ "${retval}" -eq 0 ]; then
-            home_size=$(prun /usr/sbin/btrfs qgroup show --raw -f "${TIK_ROOT_MNT}/home" | awk 'NR==2{print $2}')
-            tik_stick_size=$(prun /usr/sbin/btrfs fi usage --raw ${mig_dir} | grep estimated | awk '{print $3}')
+            tik_progress_step "Scanning existing /home (btrfs quotas)" 10
+            prun-opt /usr/sbin/btrfs quota rescan -w "${TIK_ROOT_MNT}/home" >/dev/null 2>&1
+            if [ "${retval}" -eq 0 ]; then
+                home_size="$(prun-opt /usr/sbin/btrfs qgroup show --raw -f "${TIK_ROOT_MNT}/home" | awk 'NR==2{print $2}')"
+            fi
+        else
+            home_size=""
+        fi
+
+        if [ -z "${home_size}" ] || [ "${home_size}" = "0" ]; then
+            log "[mig] btrfs quotas not enabled (or qgroup size unavailable), falling back to du -sb for /home size"
+            tik_progress_step "Scanning existing /home size" 15
+            home_size="$(prun /usr/bin/du -sb "${TIK_ROOT_MNT}/home" 2>/dev/null | awk '{print $1}')"
+        fi
+
+        tik_progress_step "Checking available space" 25
+        tik_stick_size=$(prun /usr/sbin/btrfs fi usage --raw ${mig_dir} | grep estimated | awk '{print $3}')
+        if [ -n "${home_size}" ] && [ -n "${tik_stick_size}" ]; then
             if [ "${home_size}" -gt "${tik_stick_size}" ]; then
                 # Not enough space to offer migration
                 migrate=0
@@ -75,7 +92,7 @@ if [ -z "${skipbackup}" ]; then
                 migrate=0
             fi
         else
-            log "[mig] no usable btrfs quota info found under ${TIK_ROOT_MNT}/home"
+            log "[mig] could not determine /home size or stick size reliably, migration disabled"
             migrate=0
         fi
 
@@ -97,11 +114,16 @@ if [ -z "${skipbackup}" ]; then
     if [ "${migrate}" == 1 ]; then
         # We're migrating, lets go!
         # Check for existing snapshot from interrupted backup and delete if it exists boo#1224824
+        tik_progress_step "Preparing /home snapshot" 35
         if [ -d "${TIK_ROOT_MNT}/home/${snap_dir}" ]; then
             prun /usr/sbin/btrfs subvolume delete "${TIK_ROOT_MNT}/home/${snap_dir}"
         fi
         prun /usr/sbin/btrfs subvolume snapshot -r "${TIK_ROOT_MNT}/home" "${TIK_ROOT_MNT}/home/${snap_dir}"
-        (prun /usr/sbin/btrfs send "${TIK_ROOT_MNT}/home/${snap_dir}" | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}) 2>&1 | d --progress --title="Backing up /home" --pulsate --auto-close --no-cancel --width=400
+
+        tik_progress_step "Backing up /home" 45
+        (prun /usr/sbin/btrfs send "${TIK_ROOT_MNT}/home/${snap_dir}" | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}) 2>&1 >/dev/null
+
+        tik_progress_step "Cleaning up snapshot" 55
         prun /usr/sbin/btrfs subvolume delete "${TIK_ROOT_MNT}/home/${snap_dir}"
 
         # Probe for subvolumes nested beneath /home and back them up also
@@ -111,12 +133,16 @@ if [ -z "${skipbackup}" ]; then
                 subsubvolname=$(basename $subsubvol)
                 subsubdirname=$(dirname $subsubvol)
                 prun /usr/sbin/btrfs subvolume snapshot -r "${TIK_ROOT_MNT}/home/${subsubvol}" "${TIK_ROOT_MNT}/home/${subsubvolname}"
-                (prun /usr/sbin/btrfs send "${TIK_ROOT_MNT}/home/${subsubvolname}" | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/${snap_dir}/${subsubdirname}) 2>&1 | d --progress --title="Backing up containers" --pulsate --auto-close --no-cancel --width=400
+
+                tik_progress_step "Backing up containers" 65
+                (prun /usr/sbin/btrfs send "${TIK_ROOT_MNT}/home/${subsubvolname}" | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/${snap_dir}/${subsubdirname}) 2>&1 >/dev/null
+
                 prun /usr/sbin/btrfs subvolume delete "${TIK_ROOT_MNT}/home/${subsubvolname}"
             done
             prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/${snap_dir} ro true
         fi
 
+        tik_progress_step "Exporting user/account data" 80
         prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534)' "${TIK_ROOT_MNT}/etc/passwd" | prun /usr/bin/awk -F':' '{ $7="/bin/bash"; print };' OFS=':' | prun tee ${mig_dir}/passwd.out
         prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534 && $3 != 65533)' "${TIK_ROOT_MNT}/etc/group" | prun tee ${mig_dir}/group.out
         prun /usr/bin/awk -F'[/:]' '{if ($3 >= 1000 && $3 != 65534) print $1}' "${TIK_ROOT_MNT}/etc/passwd" | prun /usr/bin/grep -f - "${TIK_ROOT_MNT}/etc/shadow" | prun tee ${mig_dir}/shadow.out
@@ -131,5 +157,7 @@ if [ -z "${skipbackup}" ]; then
         prun-opt /usr/bin/cp -a "${TIK_ROOT_MNT}/var/lib/bluetooth" ${mig_dir}/bluetooth
         prun-opt /usr/bin/cp -a "${TIK_ROOT_MNT}/var/lib/fprint" ${mig_dir}/fprint
         prun-opt /usr/bin/cp -a "${TIK_ROOT_MNT}/etc/openvpn" ${mig_dir}/openvpn
+
+        tik_progress_step "Migration backup prepared" 100
     fi
 fi
