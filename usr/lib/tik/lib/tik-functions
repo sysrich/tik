@@ -251,8 +251,9 @@ tik_target_mount() {
                 export TIK_OPENED_MAPPER
             fi
         done
-    else
-        # No encrypted partitions found -> search all partitions for a root filesystem
+    fi
+    # No enrypted root partition found -> search all partitions for a root filesystem
+    if [ -z "$TIK_ROOT_DEV" ]; then
         local part
         local parts=""
         parts="$(
@@ -266,9 +267,7 @@ tik_target_mount() {
                 break
             fi
         done
-    fi
-
-    if [ -z "${TIK_ROOT_DEV}" ]; then
+        # Also no root partition found
         if [ "${mode}" = "required" ]; then
             error "No existing system found"
         fi
