@@ -5,7 +5,7 @@
 # SPDX-FileCopyrightText: Copyright 2025 Tobias Görgens
 
 proceedInstall() {
-    d --info --ok-label="Install Now" --no-wrap --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME}</big>\n\nPlease press <b>Install Now</b> to continue"
+    d --info --ok-label="Install Now" --no-wrap --width=300 --height=300 --icon=distributor-logo-symbolic --title="" --text="<big>Welcome to ${TIK_OS_NAME}</big>\n\nPlease press <b>Install Now</b> to continue"
 }
 
 displayACWarningMsg() {
