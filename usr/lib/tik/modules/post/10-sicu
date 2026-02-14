@@ -12,7 +12,7 @@ sicu() {
     tik_progress_step "Cleaning up installer user" 0
     log "[sicu] Deleting tik user"
     prun /usr/bin/chroot "${TIK_ROOT_MNT}" userdel -r tik
-    if prun /usr/bin/test -e "${TIK_ROOT_MNT}/var/lib/gdm/block-initial-setup"; then
+    if prun-opt /usr/bin/test -e "${TIK_ROOT_MNT}/var/lib/gdm/block-initial-setup"; then
         log "[sicu] Enabling initial-setup"
         prun /usr/bin/rm "${TIK_ROOT_MNT}/var/lib/gdm/block-initial-setup"
     fi
