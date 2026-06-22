@@ -62,6 +62,8 @@ setup_env() {
     gsettings set org.gnome.software allow-updates 'false'
     gsettings set org.gnome.software download-updates 'false'
     gsettings set org.gnome.software download-updates-notify 'false'
+    # Resize btrfs to max
+    prun-opt btrfs filesystem resize max /var
 }
 
 setup_env
