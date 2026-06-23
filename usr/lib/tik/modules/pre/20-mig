@@ -4,19 +4,21 @@
 
 mig_dir=/var/lib/tik/mig
 snap_dir=homebk
+home_size=0
+tik_stick_size=0
 if [ ! -d ${mig_dir} ]; then
     prun /usr/bin/mkdir -p ${mig_dir}
 fi
 
 if [ ! -z "$(ls -A ${mig_dir})" ]; then
-    log "existing backup found"
+    log "[mig] existing backup found"
     d_opt --question --no-wrap --cancel-label="No, Delete Backup" --title="Existing user backup detected" --text="These users can be restored to the new installation\n\nWould you like to use this backup?"
     oldbackupyn=$?
-    log "[oldbackupyn][${oldbackupyn}]"
+    log "[mig] [oldbackupyn][${oldbackupyn}]"
     if [ "${oldbackupyn}" == 0 ]; then
         skipbackup=1
         migrate=1
-        log "backup skipped, migration will use existing backup"
+        log "[mig] backup skipped, migration will use existing backup"
     else
         prun-opt /usr/sbin/btrfs property set -f -ts ${mig_dir}/${snap_dir} ro false
         for subsubvol in $(prun-opt /usr/sbin/btrfs subvolume list -o ${mig_dir}/${snap_dir} --sort=path | rev | cut -f1 -d' ' | rev | sed "s/^@//"); do
@@ -46,69 +48,56 @@ fi
 get_disk
 
 if [ -z "${skipbackup}" ]; then
-        # Although Legacy Aeon didn't officially support LUKS encrypted installations,
-        # some users might have nevertheless enabled encryption anyway.
-        # Search for existing crypto_LUKS partitions and, if found, prompt the user
-        # to unlock those so that the migration module can find existing data.
-        for encrypted_partition in $(lsblk ${TIK_INSTALL_DEVICE} -p -n -r -o ID-LINK,FSTYPE|tr -s ' ' ";"|grep ";crypto_LUKS"|cut -d\; -f1); do
-            if [ -e /dev/mapper/crypt_${encrypted_partition} ]; then
-                # Already opened for some reason... do not prompt for the passphrase
-                # but ensure we will clean up afterwards
-                crypt_opened="${crypt_opened} crypt_${encrypted_partition}"
-            else
-                while [ 1 ]; do
-                    if $gui; then
-                        passphrase=$(zenity --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip") || break
-                    else
-                        cenity passphrase --password --title="Encrypted partition (${encrypted_partition}) detected" --cancel-label="Skip" || break
-                    fi
-                    if [ -n "${passphrase}" ]; then
-                        echo -n "${passphrase}" | prun /usr/sbin/cryptsetup luksOpen /dev/disk/by-id/${encrypted_partition} crypt_${encrypted_partition}
-                        if [ "${?}" -eq 0 ]; then
-                            crypt_opened="${crypt_opened} crypt_${encrypted_partition}"
-                            # Wait for the mapped device to appear
-                            wait_count=0
-                            while [ ! -e /dev/mapper/crypt_${encrypted_partition} ] && [ ${wait_count} -lt 5 ]; do
-                                sleep 1
-                                wait_count=$((wait_count + 1))
-                            done
-                            break
-                        fi
-                    fi
-                done
+    # Mount the existing system
+    tik_target_mount "tik_old_root" "optional"
+    case "$?" in
+        0) ;;
+        *)
+            log "[mig] no migratable system found, skipping migration"
+            migrate=0
+            return 0
+            ;;
+    esac
+
+    # Determine whether migration is feasible by checking /home size
+    if [ -d "${TIK_ROOT_MNT}/home" ]; then
+        # If /home is btrfs, run quota rescan and check qgroup usage.
+        # Quotas may not be enabled, so qgroup show can fail. Fall back to du in that case.
+        prun-opt /usr/sbin/btrfs quota show "${TIK_ROOT_MNT}/home" >/dev/null 2>&1
+        if [ "${retval}" -eq 0 ]; then
+            tik_progress_step "Scanning existing /home (btrfs quotas)" 10
+            prun-opt /usr/sbin/btrfs quota rescan -w "${TIK_ROOT_MNT}/home" >/dev/null 2>&1
+            if [ "${retval}" -eq 0 ]; then
+                home_size="$(prun-opt /usr/sbin/btrfs qgroup show --raw -f "${TIK_ROOT_MNT}/home" | awk 'NR==2{print $2}')"
             fi
-        done
-    unset passphrase
+        else
+            home_size=""
+        fi
 
-    # Probe selected disk for a btrfs partition containing /usr/lib/os-release
-    probe_partitions $TIK_INSTALL_DEVICE "btrfs" "/usr/lib/os-release"
+        if [ -z "${home_size}" ] || [ "${home_size}" = "0" ]; then
+            log "[mig] btrfs quotas not enabled (or qgroup size unavailable), falling back to du -sb for /home size"
+            tik_progress_step "Scanning existing /home size" 15
+            home_size="$(prun /usr/bin/du -sb "${TIK_ROOT_MNT}/home" 2>/dev/null | awk '{print $1}')"
+        fi
 
-    if [ -n "${probedpart}" ]; then
-        prun /usr/bin/mkdir ${mig_dir}/mnt
-        prun-opt /usr/bin/mount -o compress=zstd:1,subvol=/@/home ${probedpart} ${mig_dir}/mnt
-        if [ ${retval} -eq 0 ]; then
-            prun /usr/sbin/btrfs quota rescan -w ${mig_dir}/mnt | d --progress --title="Detected existing /home subvolume.." --pulsate --auto-close --no-cancel --width=400
-            home_size=$(prun /usr/sbin/btrfs qgroup show --raw -f ${mig_dir}/mnt | grep @/home$ | awk '{print $2}')
-            tik_stick_size=$(prun /usr/sbin/btrfs fi usage --raw ${mig_dir} | grep estimated | awk '{print $3}')
-            if [ ${home_size} -gt ${tik_stick_size} ]; then
+        tik_progress_step "Checking available space" 25
+        tik_stick_size=$(prun /usr/sbin/btrfs fi usage --raw ${mig_dir} | grep estimated | awk '{print $3}')
+        if [ -n "${home_size}" ] && [ -n "${tik_stick_size}" ]; then
+            if [ "${home_size}" -gt "${tik_stick_size}" ]; then
                 # Not enough space to offer migration
                 migrate=0
             fi
-            if [ ${home_size} -le 16384 ]; then
+            if [ "${home_size}" -le 16384 ]; then
                 # /home subvolume is empty
                 migrate=0
             fi
-            prun /usr/bin/umount ${mig_dir}/mnt
         else
-            log "no @/home subvolume found on ${probedpart}"
+            log "[mig] could not determine /home size or stick size reliably, migration disabled"
             migrate=0
         fi
-        prun /usr/bin/rmdir ${mig_dir}/mnt
-        # partition found, /home subvolume found, no known reason to not migrate, so ask the user
+
+        # partition found, /home found, no known reason to not migrate, so ask the user
         if [ -z "${migrate}" ]; then
-            if [ "${legacy_aeon}" == 1 ]; then
-                d --info --width=300 --height=300 --icon=distributor-logo-Aeon-symbolic  --no-wrap --title="Message from the Aeon Team" --text="We'd like to thank you for adopting openSUSE Aeon so early in it's development,\nbefore we fully understood what we were building or how we wanted it to look\n\nWe are sorry that you need to reinstall your system\n\nThank you so much for your support.\nWe hope you enjoy the new look openSUSE Aeon"
-            fi
             d_opt --question --no-wrap --title="Backup users from the existing install?" --text="These users will be restored to the new installation."
             migrateyn=$?
             if [ "${migrateyn}" == 0 ]; then
@@ -117,70 +106,58 @@ if [ -z "${skipbackup}" ]; then
                 migrate=0
             fi
         fi
+    else
+        log "[mig] no /home found on mounted system, migration disabled"
+        migrate=0
     fi
 
     if [ "${migrate}" == 1 ]; then
         # We're migrating, lets go!
-        prun /usr/bin/mkdir ${mig_dir}/mnt
-        prun /usr/bin/mount -o compress=zstd:1,subvol=/@/home ${probedpart} ${mig_dir}/mnt
         # Check for existing snapshot from interrupted backup and delete if it exists boo#1224824
-        if [ -d ${mig_dir}/mnt/${snap_dir} ]; then
-            prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/${snap_dir}
+        tik_progress_step "Preparing /home snapshot" 35
+        if [ -d "${TIK_ROOT_MNT}/home/${snap_dir}" ]; then
+            prun /usr/sbin/btrfs subvolume delete "${TIK_ROOT_MNT}/home/${snap_dir}"
         fi
-            prun /usr/sbin/btrfs subvolume snapshot -r ${mig_dir}/mnt ${mig_dir}/mnt/${snap_dir}
-            (prun /usr/sbin/btrfs send ${mig_dir}/mnt/${snap_dir} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}) 2>&1 | d --progress --title="Backing up /home" --pulsate --auto-close --no-cancel --width=400
-            prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/${snap_dir}
-            # Probe for subvolumes nested beneath /home and back them up also
-            if (prun-opt /usr/sbin/btrfs subvolume list -o ${mig_dir}/mnt | grep -q "ID "); then
-                prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/${snap_dir} ro false
-                for subsubvol in $(prun-opt /usr/sbin/btrfs subvolume list -o ${mig_dir}/mnt --sort=path | rev | cut -f1 -d' ' | rev | sed 's/^@\/home//'); do
-                    subsubvolname=$(basename $subsubvol)
-                    subsubdirname=$(dirname $subsubvol)
-                    prun /usr/sbin/btrfs subvolume snapshot -r ${mig_dir}/mnt/${subsubvol} ${mig_dir}/mnt/${subsubvolname}
-                    (prun /usr/sbin/btrfs send ${mig_dir}/mnt/${subsubvolname} | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/${snap_dir}/${subsubdirname}) 2>&1 | d --progress --title="Backing up containers" --pulsate --auto-close --no-cancel --width=400
-                    prun /usr/sbin/btrfs subvolume delete ${mig_dir}/mnt/${subsubvolname}
-                done
-                prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/${snap_dir} ro true
-            fi
-            prun /usr/bin/umount ${mig_dir}/mnt
-            prun /usr/bin/mount -o compress=zstd:1 ${probedpart} ${mig_dir}/mnt
-            prun /usr/bin/mount -o compress=zstd:1,subvol=/@/var ${probedpart} ${mig_dir}/mnt/var
-            etcmntcmd=$(cat ${mig_dir}/mnt/etc/fstab | grep "overlay /etc" | sed 's/\/sysroot\//${mig_dir}\/mnt\//g' | sed 's/\/work-etc.*/\/work-etc ${mig_dir}\/mnt\/etc\//' | sed 's/overlay \/etc overlay/\/usr\/bin\/mount -t overlay overlay -o/')
-            eval prun "$etcmntcmd"
-            prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534)' ${mig_dir}/mnt/etc/passwd | prun /usr/bin/awk -F':' '{ $7="/bin/bash"; print };' OFS=':' | prun tee ${mig_dir}/passwd.out
-            prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534 && $3 != 65533)' ${mig_dir}/mnt/etc/group | prun tee ${mig_dir}/group.out
-            prun /usr/bin/awk -F'[/:]' '{if ($3 >= 1000 && $3 != 65534) print $1}' ${mig_dir}/mnt/etc/passwd | prun /usr/bin/grep -f - ${mig_dir}/mnt/etc/shadow | prun tee ${mig_dir}/shadow.out
-            prun /usr/bin/cp -a ${mig_dir}/mnt/etc/subuid ${mig_dir}/subuid
-            prun /usr/bin/cp -a ${mig_dir}/mnt/etc/subgid ${mig_dir}/subgid
-            # It's not guaranteed that the system will have existing network configs, custom localtime or AccountsService
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/NetworkManager/system-connections ${mig_dir}/system-connections
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/localtime ${mig_dir}/localtime
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/AccountsService/users ${mig_dir}/users
-            prun-opt /usr/bin/chmod 744 ${mig_dir}/users
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/AccountsService/icons ${mig_dir}/icons
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/bluetooth ${mig_dir}/bluetooth
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/var/lib/fprint ${mig_dir}/fprint
-            prun-opt /usr/bin/cp -a ${mig_dir}/mnt/etc/openvpn ${mig_dir}/openvpn
-            prun-opt /usr/bin/umount ${mig_dir}/mnt/etc
-            prun /usr/bin/umount ${mig_dir}/mnt/var
-            prun /usr/bin/umount ${mig_dir}/mnt
-            prun /usr/bin/rmdir ${mig_dir}/mnt
-    fi
+        prun /usr/sbin/btrfs subvolume snapshot -r "${TIK_ROOT_MNT}/home" "${TIK_ROOT_MNT}/home/${snap_dir}"
 
-    # Close eventual mapped LUKS devices
-    if [ -n "${crypt_opened}" ]; then
-        for mapped_partition in ${crypt_opened}; do
-            if [ -e /dev/mapper/crypt_${encrypted_partition} ]; then
-                # We are going to replace the encrypted partition anyway, so if
-                # we're unable to gracefully close the device after 5 seconds,
-                # just give up (hence the prun-opt usage)
-                wait_count=0
-                while ! prun-opt /usr/sbin/cryptsetup luksClose /dev/mapper/${mapped_partition} && [ ${wait_count} -lt 5 ]; do
-                    sleep 1
-                    wait_count=$((wait_count + 1))
-                done
-            fi
-        done
-    fi
+        tik_progress_step "Backing up /home" 45
+        (prun /usr/sbin/btrfs send "${TIK_ROOT_MNT}/home/${snap_dir}" | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}) 2>&1 >/dev/null
 
+        tik_progress_step "Cleaning up snapshot" 55
+        prun /usr/sbin/btrfs subvolume delete "${TIK_ROOT_MNT}/home/${snap_dir}"
+
+        # Probe for subvolumes nested beneath /home and back them up also
+        if (prun-opt /usr/sbin/btrfs subvolume list -o "${TIK_ROOT_MNT}/home" | grep -q "ID "); then
+            prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/${snap_dir} ro false
+            for subsubvol in $(prun-opt /usr/sbin/btrfs subvolume list -o "${TIK_ROOT_MNT}/home" --sort=path | rev | cut -f1 -d' ' | rev | sed 's/^@\/home//'); do
+                subsubvolname=$(basename $subsubvol)
+                subsubdirname=$(dirname $subsubvol)
+                prun /usr/sbin/btrfs subvolume snapshot -r "${TIK_ROOT_MNT}/home/${subsubvol}" "${TIK_ROOT_MNT}/home/${subsubvolname}"
+
+                tik_progress_step "Backing up containers" 65
+                (prun /usr/sbin/btrfs send "${TIK_ROOT_MNT}/home/${subsubvolname}" | pv -f -F "# %b copied in %t %r" | prun /usr/sbin/btrfs receive ${mig_dir}/${snap_dir}/${subsubdirname}) 2>&1 >/dev/null
+
+                prun /usr/sbin/btrfs subvolume delete "${TIK_ROOT_MNT}/home/${subsubvolname}"
+            done
+            prun /usr/sbin/btrfs property set -f -ts ${mig_dir}/${snap_dir} ro true
+        fi
+
+        tik_progress_step "Exporting user/account data" 80
+        prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534)' "${TIK_ROOT_MNT}/etc/passwd" | prun /usr/bin/awk -F':' '{ $7="/bin/bash"; print };' OFS=':' | prun tee ${mig_dir}/passwd.out
+        prun /usr/bin/awk -F'[/:]' '($3 >= 1000 && $3 != 65534 && $3 != 65533)' "${TIK_ROOT_MNT}/etc/group" | prun tee ${mig_dir}/group.out
+        prun /usr/bin/awk -F'[/:]' '{if ($3 >= 1000 && $3 != 65534) print $1}' "${TIK_ROOT_MNT}/etc/passwd" | prun /usr/bin/grep -f - "${TIK_ROOT_MNT}/etc/shadow" | prun tee ${mig_dir}/shadow.out
+        prun /usr/bin/cp -a "${TIK_ROOT_MNT}/etc/subuid" ${mig_dir}/subuid
+        prun /usr/bin/cp -a "${TIK_ROOT_MNT}/etc/subgid" ${mig_dir}/subgid
+        # It's not guaranteed that the system will have existing network configs, custom localtime or AccountsService
+        prun-opt /usr/bin/cp -a "${TIK_ROOT_MNT}/etc/NetworkManager/system-connections" ${mig_dir}/system-connections
+        prun-opt /usr/bin/cp -a "${TIK_ROOT_MNT}/etc/localtime" ${mig_dir}/localtime
+        prun-opt /usr/bin/cp -a "${TIK_ROOT_MNT}/var/lib/AccountsService/users" ${mig_dir}/users
+        prun-opt /usr/bin/chmod 744 ${mig_dir}/users
+        prun-opt /usr/bin/cp -a "${TIK_ROOT_MNT}/var/lib/AccountsService/icons" ${mig_dir}/icons
+        prun-opt /usr/bin/cp -a "${TIK_ROOT_MNT}/var/lib/bluetooth" ${mig_dir}/bluetooth
+        prun-opt /usr/bin/cp -a "${TIK_ROOT_MNT}/var/lib/fprint" ${mig_dir}/fprint
+        prun-opt /usr/bin/cp -a "${TIK_ROOT_MNT}/etc/openvpn" ${mig_dir}/openvpn
+
+        tik_progress_step "Migration backup prepared" 100
+    fi
 fi

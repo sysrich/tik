@@ -1,10 +1,14 @@
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: Copyright 2023-2024 SUSE LLC
-# SPDX-FileCopyrightText: Copyright 2023-2024 Richard Brown
+# SPDX-FileCopyrightText: Copyright 2023-2025 SUSE LLC
+# SPDX-FileCopyrightText: Copyright 2023-2025 Richard Brown
+# SPDX-FileCopyrightText: Copyright 2025 Tobias Görgens
 
 . /usr/lib/tik/lib/cenity
 
-log(){
+# Helper functions for tik-functions
+. ${tik_dir}/lib/tik-functions-helper
+
+log() {
     if $logging; then
         echo "[${tik_module}][$(date +"%Y%m%d-%T")][LOG] $*" 1>&2
     fi
@@ -21,7 +25,7 @@ error() {
     exit 1
 }
 
-d(){
+d() {
     while true
     do
         retval=0
@@ -47,7 +51,7 @@ d(){
     done
 }
 
-d_opt(){
+d_opt() {
     retval=0
     if $gui; then
         result="$(zenity "$@")" || retval=$?
@@ -79,418 +83,243 @@ prun() {
     fi
 }
 
-get_persistent_device_from_unix_node() {
-    local unix_device=$1
-    local schema=$2
-    local node
-    local persistent_name
-    node=$(basename "${unix_device}")
-    for persistent_name in /dev/disk/"${schema}"/*; do
-        if [ "$(basename "$(readlink "${persistent_name}")")" = "${node}" ];then
-            if [[ ${persistent_name} =~ ^/dev/disk/"${schema}"/nvme-eui ]]; then
-                # Filter out nvme-eui nodes as they are not descriptive to the user
-                continue
-            fi
-            echo "${persistent_name}"
-            return
-        fi
-    done
-    warn "Could not find <tt>${schema}</tt> representation of <tt>${node}</tt>. Using original device <tt>${unix_device}</tt>"
-    echo "${unix_device}"
+tik_progress_step() {
+    # Create progress UI when first used in this phase
+    [ -n "${TIK_PROGRESS_PID}" ] || tik_prepare_progress_pipe
+
+    local message=$1
+    local module_percent=$2
+
+    if [ -z "${TIK_PIPE}" ]; then
+        return 0
+    fi
+
+    local overall_percent
+
+    if [ -n "${TIK_TOTAL_MODULES}" ] && [ "${TIK_TOTAL_MODULES}" -gt 0 ] && \
+       [ -n "${TIK_CURRENT_MODULE_INDEX}" ] && [ "${TIK_CURRENT_MODULE_INDEX}" -gt 0 ]; then
+        # Map module-local 0–100% into global 0–100% based on module index
+        # overall = ((index-1)*100 + module_percent) / total_modules
+        local base=$(( (TIK_CURRENT_MODULE_INDEX - 1) * 100 ))
+        local num=$(( base + module_percent ))
+        overall_percent=$(( num / TIK_TOTAL_MODULES ))
+    else
+        overall_percent=${module_percent}
+    fi
+
+    echo "# ${message}" > "${TIK_PIPE}"
+    echo "${overall_percent}" > "${TIK_PIPE}"
 }
 
-probe_partitions() {
-    local probe_dir=/var/lib/tik/probe
-    local filesystem_type=$2
-    local filematch=$3
-    local device=$1
-    local mountops
-    local part
-    if [[ "${filesystem_type}" == "btrfs" ]]; then
-        mountops="-o compress=zstd:1"
-    fi
-    prun /usr/bin/mkdir -p ${probe_dir}/mnt
-    probedpart=""
-    for part in $(lsblk ${device} -p -n -r -o ID-LINK,FSTYPE|tr -s ' ' ";"|grep ";${filesystem_type}"|cut -d\; -f1); do
-        if [ -z ${filematch} ]; then
-            log "[probe_partitions] no file match required"
-            # Fallback to unix device in order to fix issue with USB devices
-            probedpart="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
-            log "[probe_partitions] Partition ${probedpart} found"
-        else    # Check if ${filematch} exists
-            # Fallback to unix device in order to fix issue with USB devices
-            part="$(/usr/bin/readlink -f "/dev/disk/by-id/""${part}")"
-            prun /usr/bin/mount ${mountops} ${part} "${probe_dir}/mnt"
-            if [ -f ${probe_dir}/mnt/${filematch} ]; then
-                log "[probe_partitions] File ${filematch} found"
-                 # Fallback to unix device in order to fix issue with USB devices
-                probedpart="${part}"
-                log "[probe_partitions] Partition ${probedpart} found"
-                if grep -q 'PRETTY_NAME="openSUSE MicroOS"' ${probe_dir}/mnt/${filematch} && [ -f ${probe_dir}/mnt/usr/bin/gnome-shell ]; then
-                    # Found legacy Aeon, activate easter egg
-                    log "Legacy Aeon Install FOUND"
-                    legacy_aeon=1
-                fi
-            fi
-            prun-opt /usr/bin/umount ${probe_dir}/mnt
-        fi
-    done
-    prun /usr/bin/rmdir ${probe_dir}/mnt
+tik_unmount() {
+    local prefix="$1"
+    local listvar="${2:-TIK_MOUNTED_POINTS}"
+    local mp
+
+    [ -n "${prefix}" ] || return 0
+
+    local -n _ml="${listvar}"
+
+    log "[tik_unmount] unmounting ${prefix} (list=${listvar})"
+    while IFS= read -r mp; do
+        [ -z "${mp}" ] && continue
+        case "${mp}" in
+            "${prefix}"|${prefix}/*)
+                prun-opt /usr/bin/umount "${mp}"
+                ;;
+        esac
+    done <<< "${_ml}"
+
+    tik_untrack_mountpoint "${prefix}" "${listvar}"
 }
 
-get_disk() {
-    # Volume label for the tik install media must be set to "TIKINSTALL" to filter it out from the device list
-    tik_volid="TIKINSTALL"
-    local disk_id="by-id"
-    local disk_size
-    local disk_device
-    local disk_device_by_id
-    local disk_meta
-    local disk_list
-    local device_array
-    local list_items
-    local blk_opts="-p -n -r -o NAME,SIZE,TYPE"
-    local message
-    local blk_opts_plus_label="${blk_opts},LABEL"
-    local tik_install_disk_part
-    local part_meta
-    local part_count
-    local part_size
-    local part_info
-    local part_fs
-    local blk_opts_part_info="${blk_opts_plus_label},FSTYPE"
-    local usb_match_1="usb"
-    local usb_match_2=":0"
+tik_mount() {
+    # Mount a device and track it.
+    # If the 2nd argument is an absolute path, mount there.
+    # Otherwise, mount at a subfolder of TIK_ROOT_MNT.
+    local dev="$1"
+    local path="$2"
+    local opts="$3"
+    local fstype="$4"
+    local listvar="${5:-TIK_MOUNTED_POINTS}"
+    local overlay_root_prefix="$6"
 
-    tik_install_disk_part=$(
-        eval lsblk "${blk_opts_plus_label}" | \
-        tr -s ' ' ":" | \
-        grep ":${tik_volid}" | \
-        cut -f1 -d:
-    )
+    [ -n "${dev}" ] || error "tik_mount: missing device"
+    [ -n "${path}" ] || error "tik_mount: missing target/subpath"
 
-    for disk_meta in $(
-        eval lsblk "${blk_opts}" | grep -E "disk|raid" | tr ' ' ":"
-    );do
-        disk_size=$(echo "${disk_meta}" | cut -f2 -d:)
-        if [[ "${disk_size}" == "0B" ]]; then
-            # ignore disks with no size, e.g. empty SD card readers
-            continue
-        fi
-        disk_device="$(echo "${disk_meta}" | cut -f1 -d:)"
-        # find partitions and info for this disk
-        part_count=0
-        part_info=""
-        for part_meta in $(
-            eval lsblk "${blk_opts_part_info}" | grep -E "${disk_device}.+part.+" | tr ' ' ":"
-        );do
-            part_count=$(expr $part_count + 1)
-            part_size=$(echo "${part_meta}" | cut -f2 -d:)
-            part_fs=$(echo "${part_meta}" | cut -f5 -d:)
-            if [ -n "${part_info}" ]; then
-                part_info="${part_info},"
-            fi
-            if [ -n "${part_fs}" ]; then
-                part_info="${part_info}${part_fs}(${part_size})"
-            else
-                part_info="${part_info}unknown(${part_size})"
-            fi
-        done
-        if [[ ${part_count} -eq 0 ]]; then
-            part_info="none"
-        fi
-        if [[ "${tik_install_disk_part}" == "${disk_device}"* ]]; then
-            # ignore install source device
-            continue
-        fi
-        if [[ ${disk_device} =~ ^/dev/fd ]];then
-            # ignore floppy disk devices
-            continue
-        fi
-        if [[ ${disk_device} =~ ^/dev/zram ]];then
-            # ignore zram devices
-            continue
-        fi
-        disk_device_by_id=$(
-            get_persistent_device_from_unix_node "${disk_device}" "${disk_id}"
-        )
-        if [[ ( "${TIK_ALLOW_USB_INSTALL_DEVICES}" -ne 1 ) && ( "{$disk_device_by_id}" == *"${usb_match_1}"* || "{$disk_device_by_id}" == *"${usb_match_2}"* ) ]]; then
-            # ignore USB devices if TIK_ALLOW_USB_INSTALL_DEVICES not set in config
-            continue
-        fi
-        if [ -n "${disk_device_by_id}" ];then
-            disk_device=${disk_device_by_id}
-        fi
-        list_items="${list_items} $(basename ${disk_device}) ${disk_size} ${part_count} ${part_info}"
-        disk_list="${disk_list} $(basename ${disk_device}) ${disk_size}"
-    done
-    if [ -n "${TIK_INSTALL_DEVICE}" ];then
-        # install device overwritten by config.
-        local device=${TIK_INSTALL_DEVICE}
-        local device_meta
-        local device_size
-        if [ ! -e "${device}" ];then
-            local no_dev="Given device <tt>${device}</tt> does not exist."
-            error "${no_dev}"
-        fi
-        if [ ! -b "${device}" ];then
-            local no_block_dev="Given device <tt>${device}</tt> is not a block special."
-            error "${no_block_dev}"
-        fi
-        device_meta=$(
-            eval lsblk "${blk_opts}" "${device}" |\
-            grep -E "disk|raid" | tr ' ' ":"
-        )
-        device_size=$(echo "${device_meta}" | cut -f2 -d:)
-        # this case is not shown in manual selection, threfore we don't need partition info        
-        list_items="$(basename ${device}) ${device_size}"
-        disk_list="$(basename ${device}) ${device_size}"
-        message="tik installation device set to to: ${device}"
-        log "${message}"
-    fi
-    if [ -z "${list_items}" ];then
-        local no_device_text="No device(s) for installation found."
-        error "${no_device_text}"
-    fi
-    if [ -n "${disk_list}" ];then
-        local count=0
-        local device_index=0
-        for entry in ${disk_list};do
-            if [ $((count % 2)) -eq 0 ];then
-                device_array[${device_index}]=${entry}
-                device_index=$((device_index + 1))
-            fi
-            count=$((count + 1))
-        done
-        if [ "${device_index}" -eq 1 ];then
-            # one single disk device found, use it
-            # Add back full path to it
-            TIK_INSTALL_DEVICE="/dev/disk/${disk_id}/${device_array[0]}"
+    local target=""
 
-            # Fallback to unix device in case by-id does not exist
-            # see get_persistent_device_from_unix_node, it does fallback like this.
-            if [ ! -e "${TIK_INSTALL_DEVICE}" ]; then
-                TIK_INSTALL_DEVICE="/dev/${device_array[0]}"
-            fi
-        else
-            # manually select from storage list
-            d --list --column=Disk --column=Size --column=Partitions --column=Filesystems --width=1050 --height=340 --title="Select A Disk" --text="Select the disk to install the operating system to. <b>Make sure any important documents and files have been backed up.</b>\n" ${list_items}
-            # Add back full path to it
-            TIK_INSTALL_DEVICE="/dev/disk/${disk_id}/${result}"
-
-            # Fallback to unix device in case by-id does not exist
-            # see get_persistent_device_from_unix_node, it does fallback like this.
-            if [ ! -e "${TIK_INSTALL_DEVICE}" ]; then
-                TIK_INSTALL_DEVICE="/dev/${result}"
-            fi
-        fi
-    fi
-}
-
-get_img() {
-    local list_items
-    local message
-    local img_meta
-    local img_item
-    local img_list
-    local img_array
-    local file_type
-    # Images are assumed to be named to the following standard
-    # $ProductName.$Version.raw.xz for block devices
-    # $ProductName.$Version.raw for systemd-repart images
-    # Any extraneous fields may confuse tik's detection, selection and presentation of the image to the user
-    for file_type in '*.raw.xz' '*.raw';do
-        for img_meta in $(cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" ${file_type} | tr '	' ":"));do
-            img_filename="$(echo $img_meta | cut -f1 -d:)"
-            img_size="$(echo $img_meta | cut -f2 -d:)"
-            list_items="${list_items} ${img_filename} ${img_size}"
-        done
-    done
-    if [ -n "${TIK_INSTALL_IMAGE}" ];then
-        # install image overwritten by config.
-        local img=${TIK_INSTALL_IMAGE}
-        local img_meta
-        local img_size
-        if [ ! -e "${img}" ];then
-            local no_img="Given image <tt>${img}</tt> does not exist."
-            error "${no_img}"
-        fi
-        if [ ! -s "${img}" ];then
-            local empty_img="Given image <tt>${img}</tt> is empty."
-            error "${empty_img}"
-        fi
-        img_meta=$(
-            eval cd $TIK_IMG_DIR && (stat --printf="%n\t%s\n" $img | tr '	' ":")
-        )
-        img_filename="$(echo $img_meta | cut -f1 -d:)"
-        img_size="$(echo $img_meta | cut -f2 -d:)"
-        list_items="${list_items} ${img_filename} ${img_size}"
-        message="tik installation image set to to: ${img}"
-        log "${message}"
-    fi
-    if [ -z "${list_items}" ];then
-        TIK_INSTALL_IMAGE='TIK_SELFDEPLOY'
-    fi
-    img_list=${list_items}
-    if [ -n "${img_list}" ];then
-        local count=0
-        local img_index=0
-        for entry in ${img_list};do
-            if [ $((count % 2)) -eq 0 ];then
-                img_array[${img_index}]=${entry}
-                img_index=$((img_index + 1))
-            fi
-            count=$((count + 1))
-        done
-        if [ "${img_index}" -eq 1 ];then
-            # one single disk image found, use it
-            TIK_INSTALL_IMAGE="${img_array[0]}"
-        else
-            # manually select from storage list
-            d --list --column=Image --column=Size --title="Select A Image" --text="Select the operating system image to install.\n" ${list_items}
-            TIK_INSTALL_IMAGE="$result"
-        fi
-    fi
-}
-
-reread_partitiontable() {
-    # We've just done a lot to $TIK_INSTALL_DEVICE and it's probably a good idea to make sure the partition table is clearly read so tools like dracut dont get confused.
-    log "[reread_partitiontable] Re-reading partition table"
-    # sleeps added to let the system finish doing partition stuff before rereading, and then a few secs to finish reading the table.  Honestly, I'm not sure the 2nd one is needed, but doesn't hurt, so *shrug*
-    sleep 3
-    prun /usr/sbin/blockdev --rereadpt ${TIK_INSTALL_DEVICE}
-    sleep 3
-}
-
-create_keyfile() {
-    # Even if there's no partitions using encryption, systemd-repart will need a key-file defined for the --key-file parameter.
-    tik_keyfile=$(prun mktemp /tmp/tik.XXXXXXXXXX)
-    log "[create_keyfile] Creating keyfile ${tik_keyfile}"
-    /usr/bin/base64 -w 0 /dev/urandom | head -c 1k | prun tee ${tik_keyfile}
-    prun /usr/bin/chmod 400 ${tik_keyfile}
-    # Add the key to roots cryptenroll keyring, and record tik_keyid for either interactions later
-    tik_keyid=$(prun cat ${tik_keyfile} | prun keyctl padd user cryptenroll @u)
-}
-
-wipe_keyfile() {
-    # We made a keyfile and need to clean it up at the end of the installation, possibly wiping it from the newly installed device
-    log "[wipe_keyfile] Deleting keyfile ${tik_keyfile}"
-    probe_partitions ${TIK_INSTALL_DEVICE} "crypto_LUKS"
-    if [ -n "${probedpart}" ]; then
-        # Assumes Slot 0 is always by the key-file at enrolment
-        prun /usr/bin/systemd-cryptenroll --unlock-key-file=${tik_keyfile} --wipe-slot=0 ${probedpart}
-    fi
-    # We're done with the key-file, so remove it from the filesystem and keyring
-    prun /usr/bin/rm ${tik_keyfile}
-    prun-opt keyctl revoke ${tik_keyid}
-    prun-opt keyctl reap
-}
-
-dump_image() {
-    local image_source_files=$1
-    local image_target=$2
-
-    d --question --no-wrap --title="Begin Installation?" --text="Once the installation begins the changes to the selected disk are irreversible.\n\n<b>Proceeding will fully erase the disk.</b>\n\nContinue with installation?"
-
-    case "${image_source_files}" in
-        *.raw.xz)
-            dump_image_dd ${image_source_files} ${image_target}
-            ;;
-        *.raw)
-            dump_image_repart_image ${image_source_files} ${image_target}
-            ;;
-        TIK_SELFDEPLOY)
-            dump_image_repart_self ${image_target}
+    case "${path}" in
+        /*)
+            target="${path}"
             ;;
         *)
-            error "invalid image type provided"
+            [ -n "${TIK_ROOT_MNT}" ] || error "tik_mount: TIK_ROOT_MNT not set"
+            if echo "${path}" | grep -qE '(^|/)\.\.($|/)'; then
+                error "tik_mount: unsafe subpath '${path}'"
+            fi
+            target="${TIK_ROOT_MNT%/}/${path}"
+            ;;
     esac
-}
 
-dump_image_dd() {
-    local image_source_files=$1
-    local image_target=$2
-    log "[dump_image_dd] deploying ${TIK_IMG_DIR}/${image_source_files}"
-    (xzcat ${TIK_IMG_DIR}/${image_source_files} | pv -f -F "# %b copied in %t %r" | prun /usr/bin/dd of=${image_target} bs=64k) 2>&1 | d --progress --title="Installing ${TIK_OS_NAME}" --pulsate --auto-close --no-cancel --width=400
-    prun /usr/bin/sync | d --progress --title="Syncing" --pulsate --auto-close --no-cancel --width=400
-}
+    case "${target}" in
+        /*) ;;
+        *) error "tik_mount: target must be absolute (got '${target}')" ;;
+    esac
 
-dump_image_repart_image() {
-    local image_source_files=$1
-    local image_target=$2
-    local success=0
-    local max_attempts=5
-    local attempt_num=1
-    create_keyfile
-    log "[dump_image_repart_image] deploying ${TIK_IMG_DIR}/${image_source_files}"
-    # systemd-repart doesn't always parse the contents of the image perfectly first time, so retry a few times before declaring it a failure
-    while [ ${success} = 0 ] && [ ${attempt_num} -lt ${max_attempts} ]; do
-        prun-opt systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file=${tik_keyfile} --image=${TIK_IMG_DIR}/${image_source_files} --image-policy=root=unprotected ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
-        if [ ${retval} -eq 0 ]; then
-            success=1
+    log "[tik_mount] mounting ${dev} at ${target} opts='${opts}' fstype='${fstype}' (list=${listvar})"
+    prun /usr/bin/mkdir -p "${target}"
+
+    if [ "${fstype}" = "none" ] && (tik_is_opt_set "${opts}" "bind" || tik_is_opt_set "${opts}" "rbind"); then
+        if tik_is_opt_set "${opts}" "rbind"; then
+            prun /usr/bin/mount --rbind "${dev}" "${target}"
         else
-            # repart couldn't find a root partition
-            log "[dump_image_repart_image] systemd-repart attempt $attempt_num failed. Trying again..."
-            sleep 1
-            # Increment the attempt counter
-            attempt_num=$(( attempt_num + 1 ))
+            prun /usr/bin/mount --bind "${dev}" "${target}"
         fi
-    done
-    if [ ${success} = 1 ]; then
-        log "[dump_image_repart_image] systemd-repart succeeded after $attempt_num attempts"
-    else
-        error "systemd-repart failed"
-    fi
-}
-
-dump_image_repart_self() {
-    local image_target=$1
-    create_keyfile
-    log "[dump_image_repart_self] self-deploying"
-    prun systemd-repart --no-pager --pretty=0 --empty=force --dry-run=no --key-file=${tik_keyfile} --generate-fstab=/etc/fstab.repart ${image_target} > >(d --progress --title="Installing ${TIK_OS_NAME}" --text="Deploying OS Image" --pulsate --auto-close --no-cancel --width=400)
-}
-
-set_boot_target() {
-    local efipartnum
-    if [ "${debug}" == "1" ]; then
-        log "[debug] Not setting EFI boot target"
-    elif [ -n "${efi_already_set}" ]; then
-        log "[set_boot_target] boot target already set, not setting again"
-    else
-        # Cleanup any existing openSUSE boot entries
-        prun-opt /usr/sbin/efibootmgr -B -L "openSUSE Boot Manager"
-        # Cleanup any existing ${TIK_OS_NAME} boot entries
-        prun-opt /usr/sbin/efibootmgr -B -L "${TIK_OS_NAME} Boot Manager"
-        prun /usr/sbin/efibootmgr -O
-        log "[set_boot_target] searching for ESP partition containing /EFI/systemd/shim.efi on ${TIK_INSTALL_DEVICE}"
-        probe_partitions ${TIK_INSTALL_DEVICE} "vfat" "/EFI/systemd/shim.efi"
-        if [ -z "${probedpart}" ]; then
-            error "esp partition not found"
+        if tik_is_opt_set "${opts}" "ro" || tik_is_opt_set "${opts}" "nosuid" || tik_is_opt_set "${opts}" "nodev" || tik_is_opt_set "${opts}" "noexec"; then
+            prun /usr/bin/mount -o "remount,${opts}" "${target}"
         fi
-        efipartnum=$(lsblk ${probedpart} -p -n -r -o PARTN)
-        log "[set_boot_target] found ESP on ${probedpart}, partition number ${efipartnum}"
-        prun /usr/sbin/efibootmgr -c -L "${TIK_OS_NAME} Boot Manager" -d ${TIK_INSTALL_DEVICE} -l "\EFI\systemd\shim.efi" -p ${efipartnum}
-        # Log to show the resulting eficonfig
-        log "[set_boot_target] $(prun /usr/sbin/efibootmgr)"
-        efi_already_set=1
+
+    elif [ "${fstype}" = "overlay" ]; then
+        local newopts="${opts}"
+        if [ -n "${overlay_root_prefix}" ]; then
+            newopts="$(tik_rewrite_overlay_opts "${opts}" "${overlay_root_prefix}")"
+        fi
+        prun /usr/bin/mount -t overlay overlay -o "${newopts}" "${target}"
+
+    else
+        if [ -n "${fstype}" ]; then
+            if [ -n "${opts}" ]; then
+                prun /usr/bin/mount -t "${fstype}" -o "${opts}" "${dev}" "${target}"
+            else
+                prun /usr/bin/mount -t "${fstype}" "${dev}" "${target}"
+            fi
+        else
+            if [ -n "${opts}" ]; then
+                prun /usr/bin/mount -o "${opts}" "${dev}" "${target}"
+            else
+                prun /usr/bin/mount "${dev}" "${target}"
+            fi
+        fi
     fi
+
+    tik_track_mountpoint "${target}" "${listvar}"
 }
 
-load_modules() {
-local module_dir
-if [[ $2 = "custom" ]]; then
-    module_dir=$TIK_CUSTOM_DIR/modules/$1
-else
-    module_dir=$tik_dir/modules/$1
-fi
-if [ -n "$(ls -A $module_dir)" ]; then
-for f in $module_dir/*
-    do
-        tik_module="$f"
-        log "[START] $module_dir/$f"
-        . $f
-        log "[STOP] $module_dir/$f"
-    done
-fi
-tik_module="tik"
+tik_target_mount() {
+    # $1 = mapper override
+    # $2 = mode: required | optional
+    local mapper_override="$1"
+    local mode="${2:-required}"
+
+    [ "${TIK_MOUNTED_TARGET}" = "1" ] && return 0
+
+    tik_mount_prepare
+
+    # open encrypted device(s)
+    local crypt_parts=""
+    crypt_parts="$(
+        lsblk "${TIK_INSTALL_DEVICE}" -p -n -r -o ID-LINK,FSTYPE | tr -s ' ' ";" | grep ";crypto_LUKS" | cut -d\; -f1
+    )"
+
+    if [ -n "${crypt_parts}" ]; then
+        local crypt_part
+        for crypt_part in ${crypt_parts}; do
+            tik_crypt_open "${mapper_override}" "${mode}" "${crypt_part}"
+            case "$?" in
+                0) ;;
+                *)
+                    return "$?"
+                    ;;
+            esac
+
+            # If we opened something, check whether it looks like the root filesystem
+            if [ -n "${TIK_ROOT_DEV}" ]; then
+                if tik_is_root_partition "${TIK_ROOT_DEV}"; then
+                    break
+                fi
+
+                # Not root -> close and try the next encrypted partition
+                if [ -n "${TIK_OPENED_MAPPER}" ]; then
+                    prun-opt /usr/sbin/cryptsetup luksClose "${TIK_OPENED_MAPPER}"
+                fi
+                TIK_CRYPT_PART=""
+                export TIK_CRYPT_PART
+                TIK_ROOT_DEV=""
+                export TIK_ROOT_DEV
+                TIK_OPENED_MAPPER=""
+                export TIK_OPENED_MAPPER
+            fi
+        done
+    fi
+    # No enrypted root partition found -> search all partitions for a root filesystem
+    if [ -z "$TIK_ROOT_DEV" ]; then
+        local part
+        local parts=""
+        parts="$(
+            lsblk "${TIK_INSTALL_DEVICE}" -p -n -r -o NAME,TYPE | awk '$2=="part"{print $1}'
+        )"
+
+        for part in ${parts}; do
+            if tik_is_root_partition "${part}"; then
+                TIK_ROOT_DEV="${part}"
+                export TIK_ROOT_DEV
+                break
+            fi
+        done
+        # Also no root partition found
+        if [ "${mode}" = "required" ]; then
+            error "No existing system found"
+        fi
+        return 1
+    fi
+    export TIK_ROOT_DEV
+
+    log "[tik_target_mount] root device is ${TIK_ROOT_DEV}"
+
+    # mount root
+    tik_mount_root "${TIK_ROOT_DEV}" "${TIK_ROOT_MNT}"
+
+    # Assemble fstab in a writable location
+    local assembled
+    assembled="$(tik_fstab_assemble "${TIK_ROOT_MNT}")"
+    TIK_TARGET_FSTAB="${assembled}"
+    export TIK_TARGET_FSTAB
+    TIK_ASSEMBLED_FSTAB="${assembled}"
+    export TIK_ASSEMBLED_FSTAB
+
+    # mount everything described by assembled fstab
+    tik_mount_from_fstab "${TIK_ROOT_MNT}"
+
+    # Probe ESP
+    log "[tik_target_mount] probing for ESP partition on ${TIK_INSTALL_DEVICE}"
+    probe_partitions "${TIK_INSTALL_DEVICE}" "vfat"
+    if [ -n "${probedpart}" ]; then
+        TIK_ESP_PART="${probedpart}"
+        export TIK_ESP_PART
+        log "[tik_target_mount] found ESP ${TIK_ESP_PART}"
+    else
+        log "[tik_target_mount] no ESP found (continuing)"
+        TIK_ESP_PART=""
+        export TIK_ESP_PART
+    fi
+
+    # bind pseudo fs for chroot usage
+    tik_mount_pseudofs "${TIK_ROOT_MNT}"
+
+    log "[tik_target_mount] Target system mounted"
+
+    TIK_MOUNTED_TARGET=1
+    export TIK_MOUNTED_TARGET
+}
+
+tik_write_fstab() {
+    [ "${TIK_MOUNTED_TARGET}" = "1" ] || error "tik_write_fstab: target system not mounted"
+
+    # Install assembled fstab into the target if possible
+    if [ -n "${TIK_ASSEMBLED_FSTAB}" ] && [ -f "${TIK_ASSEMBLED_FSTAB}" ]; then
+        tik_fstab_install "${TIK_ROOT_MNT}" "${TIK_ASSEMBLED_FSTAB}" || true
+    else
+        error "tik_write_fstab: no assembled fstab available"
+    fi
 }
