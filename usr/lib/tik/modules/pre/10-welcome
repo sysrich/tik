@@ -45,6 +45,29 @@ verify_efi() {
     fi
 }
 
+setup_env() {
+    # Setup environment for installation, mostly setting GNOME/gsettings vars to prevent screenlocking, etc
+    log "[setup_env] Setting up environment for Installation"
+    gsettings set org.gnome.shell favorite-apps ['']
+    gsettings set org.gnome.desktop.session idle-delay '0'
+    gsettings set org.gnome.desktop.screensaver lock-enabled 'false'
+    gsettings set org.gnome.desktop.screensaver user-switch-enabled 'false'
+    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing'
+    gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
+    gsettings set org.gnome.desktop.lockdown disable-lock-screen 'true'
+    gsettings set org.gnome.desktop.lockdown disable-log-out 'true'
+    gsettings set org.gnome.desktop.lockdown disable-printing 'true'
+    gsettings set org.gnome.desktop.lockdown disable-print-setup 'true'
+    gsettings set org.gnome.desktop.lockdown disable-user-switching 'true'
+    gsettings set org.gnome.desktop.lockdown user-administration-disabled 'true'
+    gsettings set org.gnome.software allow-updates 'false'
+    gsettings set org.gnome.software download-updates 'false'
+    gsettings set org.gnome.software download-updates-notify 'false'
+    # Resize btrfs to max
+    prun-opt btrfs filesystem resize max /var
+}
+
+setup_env
 proceedInstall
 verify_efi
 checkLaptop
