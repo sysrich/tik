@@ -7,15 +7,18 @@ tik_prompt_passphrase() {
     local title="$1"
     local cancel_label="${2:-Cancel}"
     local passphrase=""
+    local prompt_retval=0
 
     if $gui; then
-        passphrase="$(zenity --password --title="${title}" --cancel-label="${cancel_label}")" || true
+        passphrase="$(zenity --password --title="${title}" --cancel-label="${cancel_label}")" || prompt_retval=$?
     else
-        cenity result --password --title="${title}" --cancel-label="${cancel_label}" || true
+        local result=""
+        cenity result --password --title="${title}" --cancel-label="${cancel_label}" || prompt_retval=$?
         passphrase="${result}"
     fi
 
     echo -n "${passphrase}"
+    return "${prompt_retval}"
 }
 
 tik_mount_prepare() {
@@ -122,6 +125,7 @@ tik_crypt_open() {
 
     while true; do
         local pw
+        local prompt_retval
         local cancel_label="Cancel"
 
         if [ "${mode}" = "optional" ]; then
@@ -129,24 +133,27 @@ tik_crypt_open() {
         fi
 
         pw="$(tik_prompt_passphrase "Encrypted partition (${crypt_part}) detected" "${cancel_label}")"
+        prompt_retval=$?
 
-        if [ -z "${pw}" ]; then
+        if [ "${prompt_retval}" -ne 0 ]; then
             if [ "${mode}" = "optional" ]; then
                 log "[tik_crypt_open] user skipped unlocking"
                 return 0
             fi
-            error "Encrypted system detected but no passphrase provided"
+            error "Encrypted system detected but unlocking was cancelled"
         fi
 
-        echo -n "${pw}" | prun /usr/sbin/cryptsetup luksOpen "${crypt_byid}" "${mapper_name}"
+        prun-opt /usr/sbin/cryptsetup luksOpen "${crypt_byid}" "${mapper_name}" <<<"${pw}"
         if [ "${retval}" = "0" ]; then
             TIK_ROOT_DEV="/dev/mapper/${mapper_name}"
             export TIK_ROOT_DEV
             TIK_OPENED_MAPPER="${mapper_name}"
             export TIK_OPENED_MAPPER
+            log "[tik_crypt_open] successfully unlocked ${TIK_CRYPT_PART}"
             return 0
         fi
 
+        log "[tik_crypt_open] failed to unlock ${TIK_CRYPT_PART}"
         d --warning --no-wrap --title="Incorrect passphrase" --text="Failed to unlock encrypted partition ${crypt_part}."
     done
 }
