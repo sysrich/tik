@@ -68,7 +68,7 @@ if [ -z "${skipbackup}" ]; then
             tik_progress_step "Scanning existing /home (btrfs quotas)" 10
             prun-opt /usr/sbin/btrfs quota rescan -w "${TIK_ROOT_MNT}/home" >/dev/null 2>&1
             if [ "${retval}" -eq 0 ]; then
-                home_size="$(prun-opt /usr/sbin/btrfs qgroup show --raw -f "${TIK_ROOT_MNT}/home" | awk 'NR==2{print $2}')"
+                home_size="$(prun-opt /usr/sbin/btrfs qgroup show --raw -f "${TIK_ROOT_MNT}/home" | awk '$1 ~ /^[0-9]+\/[0-9]+$/ {print $2; exit}')"
             fi
         else
             home_size=""
@@ -81,14 +81,17 @@ if [ -z "${skipbackup}" ]; then
         fi
 
         tik_progress_step "Checking available space" 25
-        tik_stick_size=$(prun /usr/sbin/btrfs fi usage --raw ${mig_dir} | grep estimated | awk '{print $3}')
+        tik_stick_size="$(prun /usr/bin/df --output=avail --block-size=1 "${mig_dir}" | awk 'NR==2 {print $1}')"
+        log "[mig] backup size check: home_size=${home_size:-unknown}, available=${tik_stick_size:-unknown}"
         if [ -n "${home_size}" ] && [ -n "${tik_stick_size}" ]; then
             if [ "${home_size}" -gt "${tik_stick_size}" ]; then
                 # Not enough space to offer migration
+                log "[mig] migration disabled: /home requires ${home_size} bytes but only ${tik_stick_size} bytes are available"
                 migrate=0
             fi
             if [ "${home_size}" -le 16384 ]; then
                 # /home subvolume is empty
+                log "[mig] migration disabled: /home appears empty (${home_size} bytes)"
                 migrate=0
             fi
         else
